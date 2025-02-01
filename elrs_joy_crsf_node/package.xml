@@ -1,18 +1,19 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>elrs_joy</name>
+  <name>elrs_joy_crsf_node</name>
   <version>0.0.0</version>
-  <description>ExpreessLRS RX to sensor_msgs/Joy driver</description>
+  <description>CRSF joy node for ELRS</description>
   <maintainer email="alessiomorale@gmail.com">Alessio Morale</maintainer>
   <license>MIT</license>
-
+  <depend>elrs_joy_crsf_protocol</depend>
+  <depend>sensor_msgs</depend>
   <buildtool_depend>ament_cmake</buildtool_depend>
-
-  <exec_depend>elrs_joy_crsf_node</exec_depend>
-
-  <exec_depend>elrs_joy_crsf_protocol</exec_depend>
-
+  <depend>rclcpp</depend>
+  <depend>asio_cmake_module</depend>
+  <depend>asio</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>diagnostic_updater</depend>
   <export>
     <build_type>ament_cmake</build_type>
   </export>
