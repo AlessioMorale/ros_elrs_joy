@@ -1,0 +1,10 @@
+{
+    "build": {
+        "event-handlers": [ "console_cohesion+" ],
+        "symlink-install": true,
+        "mixin": [ debug, ccache, compile-commands, build-testing-on ], #, ninja],
+        "executor": "parallel",
+        "parallel-workers": 4,
+        "packages-up-to": [ "elrs_joy" ]
+    }
+}
