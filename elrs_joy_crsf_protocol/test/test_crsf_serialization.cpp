@@ -49,6 +49,7 @@ TEST(SerializerTest, SerializeRCChannelPacked)
   for (size_t i = 0; i < 16; i++) {
     payload.channels[i] = 1500;
   }
+
   const std::vector<uint8_t> expected{0xe0, 0x03, 0x1f, 0xf8, 0xc0, 0x07, 0x3e, 0xf0,
                                       0x81, 0x0f, 0x7c, 0xe0, 0x03, 0x1f, 0xf8, 0xc0,
                                       0x07, 0x3e, 0xf0, 0x81, 0x0f, 0x7c};
@@ -73,8 +74,8 @@ TEST(SerializerTest, SerializeAndDeserializeCommand)
     .realm = crsf::CommandRealm::CRSF_COMMAND_SUBCMD_RX,
     .command = crsf::Command::CRSF_COMMAND_SUBCMD_RX_MODEL_SELECT_ID,
     .data = {0x36, 0x26}};
-  auto data =
-    crsf::Frame::serialize(crsf::FrameType::COMMAND, crsf::Serialization::serialize(payload));
+  auto data = crsf::FrameSerializer::serialize(
+    crsf::FrameType::COMMAND, crsf::Serialization::serialize(payload));
   auto deserializedPayload = crsf::Serialization::deserializeHeartbeat(data);
   ASSERT_TRUE(deserializedPayload.has_value());
   EXPECT_EQ(data, expected);
@@ -82,7 +83,7 @@ TEST(SerializerTest, SerializeAndDeserializeCommand)
 
 TEST(SerializerTest, SerializeAndDeserializeHeartbeat)
 {
-  const std::vector<uint8_t> expected = {0x00, 0xc8};
+  std::vector<uint8_t> expected = {0x00, 0xc8};
   crsf::HeartbeatPayload payload = {
     .originDeviceAddress = crsf::Address::CRSF_ADDRESS_FLIGHT_CONTROLLER};
   auto data = crsf::Serialization::serialize(payload);

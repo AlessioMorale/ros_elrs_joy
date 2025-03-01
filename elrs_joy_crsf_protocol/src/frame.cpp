@@ -36,87 +36,63 @@
 namespace crsf
 {
 
-bool Frame::isValidSync(uint8_t sync)
+bool FrameSerializer::is_valid_sync(uint8_t sync)
 {
   return sync == SYNC_BYTE || sync == SYNC_BYTE_EDGETX || sync == SYNC_BYTE_BROADCAST;
 }
 
-std::vector<uint8_t> Frame::serialize(
+std::vector<uint8_t> FrameSerializer::serialize(
   FrameType type, const std::vector<uint8_t> & payload, Address sync_byte)
 {
-  std::vector<uint8_t> frame;
-  frame.reserve(payload.size() + 4);  // sync + length + type + payload + crc
-
-  Serialization::packU8(static_cast<uint8_t>(sync_byte), frame);
-  Serialization::packU8(static_cast<uint8_t>(payload.size() + 2), frame);  // +2 for type and CRC
-  Serialization::packU8(static_cast<uint8_t>(type), frame);
-  frame.insert(frame.end(), payload.begin(), payload.end());
-
-  // Calculate CRC from type to end of payload
-  uint8_t crc = calculateCRC8({frame.data() + 2, static_cast<size_t>(frame.size() - 2)});
-  Serialization::packU8(crc, frame);
-
-  return frame;
+  std::vector<uint8_t> frame_storage;
+  Frame frame{frame_storage};
+  frame.set_sync(sync_byte);
+  frame.set_size(payload.size() + 2);  // +2 for type and CRC
+  frame.set_type(type);
+  frame.set_payload({payload.begin(), payload.size()});
+  frame.update_crc();
+  return frame_storage;
 }
 
-inline ValidationStatus Frame::validate(const std::vector<uint8_t> & data)
+inline ValidationStatus FrameSerializer::validate(Frame & frame)
 {
-  if (data.size() < MIN_FRAME_LEN + 2) {
+  if (frame.get_storage_size() < MIN_FRAME_LEN + 2) {
     return ValidationStatus::INVALID_NOT_ENOUGH_DATA;
   }
 
-  auto sync = data[0];
-  auto length = data[1];
-  [[maybe_unused]] auto type = static_cast<FrameType>(data[2]);
+  auto sync = frame.get_sync_byte();
+  [[maybe_unused]] auto type = frame.get_type();
 
-  if (!isValidSync(sync)) {
+  if (!is_valid_sync(sync)) {
     return ValidationStatus::UNSUPPORTED_SYNC;
   }
 
-  if (data.size() < length + 2u) {  // +2 for sync and length bytes
+  if (!frame.check_size()) {
     return ValidationStatus::INVALID_NOT_ENOUGH_DATA;
   }
 
-  uint8_t calculatedCRC = calculateCRC8({data.data() + 2, static_cast<size_t>(length - 1)});
-  if (calculatedCRC != data[length + 1]) {
+  if (!frame.check_crc()) {
     return ValidationStatus::INVALID_CRC;
   }
 
   return ValidationStatus::OK;
 }
 
-uint8_t Frame::calculateCRC8(const std::span<const uint8_t> data)
+FrameSerializer::SerializationResult FrameSerializer::deserialize(std::vector<uint8_t> & data)
 {
-  uint8_t crc = 0;
-  for (uint8_t value : data) {
-    crc ^= value;
-    for (int j = 0; j < 8; ++j) {
-      if (crc & 0x80) {
-        crc = static_cast<uint8_t>((crc << 1) ^ CRC8_POLY);
-      } else {
-        crc = static_cast<uint8_t>(crc << 1);
-      }
-    }
-  }
-  return crc;
-}
-
-Frame::ParseResult Frame::parse_frame(const std::vector<uint8_t> & data)
-{
-  ParseResult result{
-    .validation_status = validate(data),
-    .type = FrameType::INVALID,
-    .payload = std::nullopt,
-  };
-
+  Frame frame(data);
+  SerializationResult result{
+    .validation_status = validate(frame), .type = FrameType::INVALID, .payload = {}};
+  result.payload.reset();
   if (result.validation_status != ValidationStatus::OK) {
     return result;
   }
 
-  size_t length = data[1];
+  [[maybe_unused]] size_t length = frame.get_length();
 
   result.type = static_cast<FrameType>(data[2]);
-  result.payload->assign(data.begin() + 3, data.begin() + length + 1);
+  auto payload = frame.get_payload();
+  result.payload = {payload.begin(), payload.end()};
 
   return result;
 }

@@ -27,9 +27,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <optional>
 #include <span>  // NOLINT
 #include <vector>
+
+#include "elrs_joy_crsf_protocol/encoding.hpp"
 
 namespace crsf
 {
@@ -84,10 +87,121 @@ enum class FrameType : uint8_t
   RADIO_ID = 0x3A
 };
 
-class Frame
+class Frame : public Encoder, public Decoder
 {
 public:
-  struct ParseResult
+  const size_t FRAME_SYNC_POSITION = 0;
+  const size_t FRAME_LENGTH_POSITION = 1;
+  const size_t FRAME_TYPE_POSITION = 2;
+  const size_t FRAME_PAYLOAD_START_POSITION = 3;
+
+  explicit Frame(std::vector<uint8_t> & frame_data) : crsf::Encoder(frame_data), Decoder(frame_data)
+  {
+  }
+
+  uint8_t get_sync_byte() const
+  {
+    auto pos = FRAME_SYNC_POSITION;
+    return readU8(pos);
+  }
+
+  Address get_sync() const { return static_cast<Address>(get_sync_byte()); }
+
+  size_t get_length() const
+  {
+    auto pos = FRAME_LENGTH_POSITION;
+    return static_cast<size_t>(readU8(pos));
+  }
+
+  FrameType get_type() const
+  {
+    auto pos = FRAME_TYPE_POSITION;
+    return static_cast<FrameType>(readU8(pos));
+  }
+
+  void set_sync(Address sync_byte)
+  {
+    set_write_position(FRAME_SYNC_POSITION);
+    writeU8(static_cast<uint8_t>(sync_byte));
+  }
+
+  void set_size(size_t size)
+  {
+    set_write_position(FRAME_LENGTH_POSITION);
+    writeU8(static_cast<uint8_t>(size));
+    data.get().resize(size + 2);  // [Payload size + type + crc] + sync + length
+  }
+
+  void set_type(FrameType type)
+  {
+    set_write_position(FRAME_TYPE_POSITION);
+    writeU8(static_cast<uint8_t>(type));
+  }
+
+  std::span<uint8_t> get_payload() const
+  {
+    return {
+      data.get().begin() + static_cast<int16_t>(FRAME_PAYLOAD_START_POSITION),
+      data.get().end() - 1};
+  };
+
+  void set_payload(const std::span<const uint8_t> new_payload)
+  {
+    set_write_position(FRAME_PAYLOAD_START_POSITION);
+    for (auto byte : new_payload) {
+      writeU8(byte);
+    }
+  }
+
+  uint8_t get_crc() const
+  {
+    auto pos = get_storage_size() - 1;  // [Payload size + type + crc] + sync + length
+    return readU8(pos);
+  }
+
+  void update_crc()
+  {
+    set_write_position(get_length() + 2 - 1);  // [Payload size + type + crc] + sync + length
+    uint8_t crc = calculate_crc();
+    writeU8(crc);
+  }
+
+  uint8_t calculate_crc() const
+  {
+    return calculateCRC8({data.get().cbegin() + 2, data.get().cend() - 1});
+  }
+
+  bool check_crc() const { return calculate_crc() == get_crc(); }
+
+  bool check_size() const { return get_storage_size() == get_length() + 2u; }
+
+  size_t get_storage_size() const { return data.get().size(); }
+
+  std::span<const uint8_t> get_data() const { return {data.get()}; }
+
+private:
+  static constexpr uint8_t CRC8_POLY = 0xD5;
+  uint8_t calculateCRC8(const std::span<const uint8_t> framedata) const
+  {
+    uint8_t crc = 0;
+    for (uint8_t value : framedata) {
+      crc ^= value;
+      for (int j = 0; j < 8; ++j) {
+        if (crc & 0x80) {
+          crc = static_cast<uint8_t>((crc << 1) ^ CRC8_POLY);
+        } else {
+          crc = static_cast<uint8_t>(crc << 1);
+        }
+      }
+    }
+    return crc;
+  }
+};
+
+class FrameSerializer
+{
+public:
+  struct SerializationResult
   {
     ValidationStatus validation_status;
     FrameType type;
@@ -104,16 +218,14 @@ public:
   static constexpr size_t MIN_FRAME_LEN = 2;
   static constexpr size_t MAX_FRAME_LEN = 62;
 
-  static inline ValidationStatus validate(const std::vector<uint8_t> & data);
+  static inline ValidationStatus validate(Frame & frame);
 
   static std::vector<uint8_t> serialize(
     FrameType type, const std::vector<uint8_t> & payload,
     Address sync_byte = Address::CRSF_ADDRESS_FLIGHT_CONTROLLER);
-  static ParseResult parse_frame(const std::vector<uint8_t> & data);
-  static uint8_t calculateCRC8(const std::span<const uint8_t> data);
+  static SerializationResult deserialize(std::vector<uint8_t> & data);
 
 private:
-  static constexpr uint8_t CRC8_POLY = 0xD5;
-  static bool isValidSync(uint8_t sync);
+  static bool is_valid_sync(uint8_t sync);
 };
 }  // namespace crsf
