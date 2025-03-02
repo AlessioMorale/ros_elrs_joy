@@ -41,13 +41,13 @@ TEST(FrameTest, CalculateCRC8)
   EXPECT_EQ(crc, 0);  // Expected CRC value
 }
 
-// TEST(FrameTest, SerializeAndParse)
-// {
-//   std::vector<uint8_t> payload = {0x01, 0x02, 0x03};
-//   auto frame = crsf::FrameSerializer::serialize(crsf::FrameType::BATTERY_SENSOR, payload);
-//   auto result = crsf::FrameSerializer::deserialize(frame);
-//   EXPECT_EQ(result.validation_status, crsf::ValidationStatus::OK);
-//   ASSERT_TRUE(result.payload.has_value());
-//   EXPECT_EQ(result.type, crsf::FrameType::BATTERY_SENSOR);
-//   EXPECT_EQ(result.payload.value(), payload);
-// }
+TEST(FrameTest, SerializeAndParse)
+{
+  std::vector<uint8_t> payload = {0x01, 0x02, 0x03};
+  auto frame = crsf::FrameSerializer::serialize(crsf::FrameType::BATTERY_SENSOR, payload);
+  auto result = crsf::FrameSerializer::deserialize(frame);
+  EXPECT_EQ(result.validation_status, crsf::ValidationStatus::OK);
+  ASSERT_TRUE(result.payload.has_value());
+  EXPECT_EQ(result.type, crsf::FrameType::BATTERY_SENSOR);
+  EXPECT_EQ(result.payload.value(), payload);
+}
