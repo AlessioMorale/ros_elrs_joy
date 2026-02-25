@@ -22,18 +22,20 @@
 // SPDX-License-Identifier: mit
 //
 
-#ifndef ELRS_JOY_CRSF_PROTOCOL__SERIALIZATION_HPP_
-#define ELRS_JOY_CRSF_PROTOCOL__SERIALIZATION_HPP_
+#ifndef ELRS_JOY_CRSF_PROTOCOL__CRSF__SERIALIZATION_HPP_
+#define ELRS_JOY_CRSF_PROTOCOL__CRSF__SERIALIZATION_HPP_
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
 #include <vector>
 
-#include "elrs_joy_crsf_protocol/payload.hpp"
-namespace crsf
+#include "elrs_joy_crsf_protocol/crsf/message.hpp"
+#include "elrs_joy_crsf_protocol/crsf/payload.hpp"
+
+namespace elrs_joy_crsf_protocol::crsf
 {
 
-class Serialization
+class PayloadSerialization
 {
 public:
   static std::vector<uint8_t> serialize(const BatterySensorPayload & payload);
@@ -51,7 +53,7 @@ public:
   static std::optional<CommandPayload> deserializeCommand(const std::vector<uint8_t> & data);
 
 protected:
-  friend class Frame;
+  friend class Message;
 
   static inline void packU8(uint8_t value, std::vector<uint8_t> & data) { data.push_back(value); }
 
@@ -119,5 +121,5 @@ protected:
     return sign ? -magnitude : magnitude;
   }
 };
-}  // namespace crsf
-#endif  // ELRS_JOY_CRSF_PROTOCOL__SERIALIZATION_HPP_
+}  // namespace elrs_joy_crsf_protocol::crsf
+#endif  // ELRS_JOY_CRSF_PROTOCOL__CRSF__SERIALIZATION_HPP_

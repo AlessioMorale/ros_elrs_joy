@@ -22,36 +22,23 @@
 // SPDX-License-Identifier: mit
 //
 
-#ifndef ELRS_JOY_CRSF_PROTOCOL__FRAME_PARSER_HPP_
-#define ELRS_JOY_CRSF_PROTOCOL__FRAME_PARSER_HPP_
+#ifndef ELRS_JOY_CRSF_PROTOCOL__CRSF__PACKETS_HPP_
+#define ELRS_JOY_CRSF_PROTOCOL__CRSF__PACKETS_HPP_
 
 #include <array>
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <queue>
 #include <vector>
 
-class FrameParser
+#include "elrs_joy_crsf_protocol/crsf/message.hpp"
+
+namespace elrs_joy_crsf_protocol::crsf
+{
+class Packets
 {
 public:
-  struct Frame
-  {
-    std::vector<uint8_t> data;
-    uint8_t get_sync() { return data[0]; }
-
-    uint8_t get_length() { return data[1]; }
-
-    uint8_t get_type() { return data[2]; }
-
-    std::vector<uint8_t> get_payload()
-    {
-      std::vector<uint8_t> payload(data.begin() + 3, data.end() - 1);
-      return payload;
-    };
-
-    uint8_t get_crc() { return data[data.size() - 1]; }
-  };
-
   struct Statistics
   {
     uint32_t total_bytes_processed = 0;
@@ -80,14 +67,14 @@ public:
     WAITING_CRC
   };
 
-  using FrameCallback = std::function<void(const Frame &)>;
+  using FrameCallback = std::function<void(const Message::Frame &)>;
 
   static constexpr std::array<uint8_t, 3> VALID_SYNC_BYTES = {0xC8, 0x00, 0xEE};
   static constexpr uint8_t MIN_FRAME_LENGTH = 2;
   static constexpr uint8_t MAX_FRAME_LENGTH = 62;
 
   // Constructor with optional callback
-  explicit FrameParser(FrameCallback callback = nullptr) : frame_callback(callback) {}
+  explicit Packets(FrameCallback callback = nullptr) : frame_callback(callback) {}
 
   // Set callback after construction
   void set_callback(FrameCallback callback) { frame_callback = callback; }
@@ -138,7 +125,6 @@ public:
         current_frame.data.push_back(byte);
         if (verify_crc()) {
           stats.frames_decoded++;
-          last_valid_frame = current_frame;
           if (frame_callback) {
             frame_callback(current_frame);
           }
@@ -153,9 +139,6 @@ public:
     return false;
   }
 
-  // Get the last successfully parsed frame
-  std::optional<Frame> get_last_frame() const { return last_valid_frame; }
-
   // Get current statistics
   const Statistics & get_statistics() const { return stats; }
 
@@ -168,16 +151,15 @@ public:
   // Calculate frame success rate as percentage
   float get_success_rate() const
   {
-    uint32_t total_attempts =
-      stats.frames_decoded + stats.sync_errors + stats.length_errors + stats.crc_errors;
+    float total_attempts = static_cast<float>(
+      stats.frames_decoded + stats.sync_errors + stats.length_errors + stats.crc_errors);
     if (total_attempts == 0) return 0.0f;
     return (static_cast<float>(stats.frames_decoded) / total_attempts) * 100.0f;
   }
 
 private:
   State current_state = State::WAITING_SYNC;
-  Frame current_frame;
-  std::optional<Frame> last_valid_frame;
+  Message::Frame current_frame;
   Statistics stats;
   FrameCallback frame_callback;
 
@@ -192,14 +174,15 @@ private:
     return length >= MIN_FRAME_LENGTH && length <= MAX_FRAME_LENGTH;
   }
 
-  void reset_frame() { current_frame = Frame(); }
+  void reset_frame() { current_frame.data.clear(); }
 
   bool verify_crc() const
   {
     // Calculate CRC over all fields
-    auto calculated_crc = Frame::calculateCRC8(current_frame.data);
+    auto calculated_crc = Message::calculateCRC8(current_frame.data);
 
     return calculated_crc == current_frame.get_crc();
   }
 };
-#endif  // ELRS_JOY_CRSF_PROTOCOL__FRAME_PARSER_HPP_
+}  // namespace elrs_joy_crsf_protocol::crsf
+#endif  // ELRS_JOY_CRSF_PROTOCOL__CRSF__PACKETS_HPP_

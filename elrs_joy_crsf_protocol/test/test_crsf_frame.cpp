@@ -27,14 +27,16 @@
 #include <cstdint>
 #include <vector>
 
-#include "elrs_joy_crsf_protocol/frame.hpp"
+#include "elrs_joy_crsf_protocol/crsf/message.hpp"
 
+namespace elrs_joy_crsf_protocol::crsf
+{
 TEST(FrameTest, CalculateCRC8)
 {
   uint8_t data[] = {0xc8, 0x18, 0x16, 0xe0, 0x03, 0x1f, 0xf8, 0xc0, 0x07, 0x3e, 0xf0, 0x81, 0x0f,
                     0x7c, 0xe0, 0x03, 0x1f, 0xf8, 0xc0, 0x07, 0x3e, 0xf0, 0x81, 0x0f, 0x7c, 0xad};
   // calculate CRC, skip header bytes
-  uint8_t crc = crsf::Frame::calculateCRC8({data + 2, sizeof(data) - 2});
+  uint8_t crc = Message::calculateCRC8({data + 2, sizeof(data) - 2});
   // the input string includes the CRC byte, thus the result must be 0
   EXPECT_EQ(crc, 0);  // Expected CRC value
 }
@@ -42,9 +44,11 @@ TEST(FrameTest, CalculateCRC8)
 TEST(FrameTest, SerializeAndParse)
 {
   std::vector<uint8_t> payload = {0x01, 0x02, 0x03};
-  auto frame = crsf::Frame::serialize(crsf::FrameType::BATTERY_SENSOR, payload);
-  auto result = crsf::Frame::parse_frame(frame);
-  ASSERT_TRUE(result.payload.has_value());
-  EXPECT_EQ(result.type, crsf::FrameType::BATTERY_SENSOR);
-  EXPECT_EQ(result.payload.value(), payload);
+  auto frame = Message::serialize(MessageType::BATTERY_SENSOR, payload);
+  auto result = Message::parse_message(frame);
+  EXPECT_EQ(result.validation_status, ValidationStatus::OK);
+  EXPECT_EQ(result.message.get_type(), MessageType::BATTERY_SENSOR);
+  EXPECT_EQ(result.message.get_payload(), payload);
 }
+
+}  // namespace elrs_joy_crsf_protocol::crsf

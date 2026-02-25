@@ -28,14 +28,15 @@
 #include <cstdint>
 #include <vector>
 
-#include "elrs_joy_crsf_protocol/payload.hpp"
-#include "elrs_joy_crsf_protocol/serialization.hpp"
-
+#include "elrs_joy_crsf_protocol/crsf/payload.hpp"
+#include "elrs_joy_crsf_protocol/crsf/serialization.hpp"
+namespace elrs_joy_crsf_protocol
+{
 TEST(SerializerTest, SerializeAndDeserializeBatterySensor)
 {
   crsf::BatterySensorPayload payload = {12.3f, 4.56f, 789, 90};
-  auto data = crsf::Serialization::serialize(payload);
-  auto deserializedPayload = crsf::Serialization::deserializeBatterySensor(data);
+  auto data = crsf::PayloadSerialization::serialize(payload);
+  auto deserializedPayload = crsf::PayloadSerialization::deserializeBatterySensor(data);
   ASSERT_TRUE(deserializedPayload.has_value());
   EXPECT_FLOAT_EQ(deserializedPayload->voltage, payload.voltage);
   EXPECT_FLOAT_EQ(deserializedPayload->current, payload.current);
@@ -52,9 +53,9 @@ TEST(SerializerTest, SerializeRCChannelPacked)
   const std::vector<uint8_t> expected{0xe0, 0x03, 0x1f, 0xf8, 0xc0, 0x07, 0x3e, 0xf0,
                                       0x81, 0x0f, 0x7c, 0xe0, 0x03, 0x1f, 0xf8, 0xc0,
                                       0x07, 0x3e, 0xf0, 0x81, 0x0f, 0x7c};
-  auto data = crsf::Serialization::serialize(payload);
+  auto data = crsf::PayloadSerialization::serialize(payload);
   EXPECT_EQ(data, expected);
-  auto deserializedPayload = crsf::Serialization::deserializeRCChannels(data);
+  auto deserializedPayload = crsf::PayloadSerialization::deserializeRCChannels(data);
   ASSERT_TRUE(deserializedPayload.has_value());
   for (size_t i = 0; i < 16; i++) {
     EXPECT_EQ(deserializedPayload->channels[i], 1500);
@@ -73,9 +74,9 @@ TEST(SerializerTest, SerializeAndDeserializeCommand)
     .realm = crsf::CommandRealm::CRSF_COMMAND_SUBCMD_RX,
     .command = crsf::Command::CRSF_COMMAND_SUBCMD_RX_MODEL_SELECT_ID,
     .data = {0x36, 0x26}};
-  auto data =
-    crsf::Frame::serialize(crsf::FrameType::COMMAND, crsf::Serialization::serialize(payload));
-  auto deserializedPayload = crsf::Serialization::deserializeHeartbeat(data);
+  auto data = crsf::Message::serialize(
+    crsf::MessageType::COMMAND, crsf::PayloadSerialization::serialize(payload));
+  auto deserializedPayload = crsf::PayloadSerialization::deserializeHeartbeat(data);
   ASSERT_TRUE(deserializedPayload.has_value());
   EXPECT_EQ(data, expected);
 }
@@ -85,10 +86,11 @@ TEST(SerializerTest, SerializeAndDeserializeHeartbeat)
   const std::vector<uint8_t> expected = {0x00, 0xc8};
   crsf::HeartbeatPayload payload = {
     .originDeviceAddress = crsf::Address::CRSF_ADDRESS_FLIGHT_CONTROLLER};
-  auto data = crsf::Serialization::serialize(payload);
-  auto deserializedPayload = crsf::Serialization::deserializeHeartbeat(expected);
+  auto data = crsf::PayloadSerialization::serialize(payload);
+  auto deserializedPayload = crsf::PayloadSerialization::deserializeHeartbeat(expected);
   ASSERT_TRUE(deserializedPayload.has_value());
   EXPECT_EQ(data, expected);
   EXPECT_EQ(
     deserializedPayload->originDeviceAddress, crsf::Address::CRSF_ADDRESS_FLIGHT_CONTROLLER);
 }
+}  // namespace elrs_joy_crsf_protocol

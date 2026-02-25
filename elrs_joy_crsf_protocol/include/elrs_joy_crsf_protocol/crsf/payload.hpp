@@ -28,8 +28,8 @@
 #include <cstdlib>
 #include <vector>
 
-#include "elrs_joy_crsf_protocol/frame.hpp"
-namespace crsf
+#include "elrs_joy_crsf_protocol/crsf/message.hpp"
+namespace elrs_joy_crsf_protocol::crsf
 {
 
 struct ExtendedHeader
@@ -126,4 +126,4 @@ struct CommandPayload
   static constexpr size_t BASE_SIZE = ExtendedHeader::SIZE + 2;  // Size in bytes
 };
 
-}  // namespace crsf
+}  // namespace elrs_joy_crsf_protocol::crsf

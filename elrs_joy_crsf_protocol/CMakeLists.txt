@@ -18,7 +18,7 @@ include_directories(
   include
 )
 
-file(GLOB CRSF_SRC_FILES src/*.cpp)
+file(GLOB CRSF_SRC_FILES src/**/*.cpp)
 
 add_library(
   ${PROJECT_NAME}

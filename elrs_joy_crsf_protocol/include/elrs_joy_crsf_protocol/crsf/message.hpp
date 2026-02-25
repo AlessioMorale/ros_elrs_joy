@@ -31,7 +31,7 @@
 #include <span>  // NOLINT
 #include <vector>
 
-namespace crsf
+namespace elrs_joy_crsf_protocol::crsf
 {
 
 enum class ValidationStatus : uint8_t
@@ -61,7 +61,7 @@ enum class Address : uint8_t
   CRSF_ADDRESS_ELRS_LUA = 0xEF            // Non-Standard Source address used by ExpressLRS Lua
 };
 
-enum class FrameType : uint8_t
+enum class MessageType : uint8_t
 {
   INVALID = 0x00,
   GPS = 0x02,
@@ -84,14 +84,28 @@ enum class FrameType : uint8_t
   RADIO_ID = 0x3A
 };
 
-class Frame
+class Message
 {
 public:
+  struct Frame
+  {
+    std::vector<uint8_t> data;
+    uint8_t get_sync() const { return data[0]; }
+    uint8_t get_length() const { return data[1]; }
+    MessageType get_type() const { return static_cast<MessageType>(data[2]); }
+    std::vector<uint8_t> get_payload() const
+    {
+      std::vector<uint8_t> payload(data.begin() + 3, data.end() - 1);
+      return payload;
+    };
+
+    uint8_t get_crc() const { return data[data.size() - 1]; }
+  };
+
   struct ParseResult
   {
     ValidationStatus validation_status;
-    FrameType type;
-    std::optional<std::vector<uint8_t>> payload;
+    Frame message;
   };
 
   // Common sync bytes values
@@ -107,13 +121,13 @@ public:
   static inline ValidationStatus validate(const std::vector<uint8_t> & data);
 
   static std::vector<uint8_t> serialize(
-    FrameType type, const std::vector<uint8_t> & payload,
+    MessageType type, const std::vector<uint8_t> & payload,
     Address sync_byte = Address::CRSF_ADDRESS_FLIGHT_CONTROLLER);
-  static ParseResult parse_frame(const std::vector<uint8_t> & data);
+  static ParseResult parse_message(const std::vector<uint8_t> & data);
   static uint8_t calculateCRC8(const std::span<const uint8_t> data);
 
 private:
   static constexpr uint8_t CRC8_POLY = 0xD5;
   static bool isValidSync(uint8_t sync);
 };
-}  // namespace crsf
+}  // namespace elrs_joy_crsf_protocol::crsf

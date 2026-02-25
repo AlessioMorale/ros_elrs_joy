@@ -22,17 +22,17 @@
 // SPDX-License-Identifier: mit
 //
 
-#include "elrs_joy_crsf_protocol/serialization.hpp"
+#include "elrs_joy_crsf_protocol/crsf/serialization.hpp"
 
 #include <cstdint>
 #include <cstring>
 #include <optional>
 #include <vector>
 
-namespace crsf
+namespace elrs_joy_crsf_protocol::crsf
 {
 
-std::vector<uint8_t> Serialization::serialize(const BatterySensorPayload & payload)
+std::vector<uint8_t> PayloadSerialization::serialize(const BatterySensorPayload & payload)
 {
   std::vector<uint8_t> data;
   data.reserve(BatterySensorPayload::SIZE);
@@ -49,7 +49,7 @@ std::vector<uint8_t> Serialization::serialize(const BatterySensorPayload & paylo
   return data;
 }
 
-std::vector<uint8_t> Serialization::serialize(const HeartbeatPayload & payload)
+std::vector<uint8_t> PayloadSerialization::serialize(const HeartbeatPayload & payload)
 {
   std::vector<uint8_t> data;
   data.reserve(HeartbeatPayload::SIZE);
@@ -57,7 +57,7 @@ std::vector<uint8_t> Serialization::serialize(const HeartbeatPayload & payload)
   return data;
 }
 
-std::vector<uint8_t> Serialization::serialize(const LinkStatisticsPayload & payload)
+std::vector<uint8_t> PayloadSerialization::serialize(const LinkStatisticsPayload & payload)
 {
   std::vector<uint8_t> data;
   data.reserve(LinkStatisticsPayload::SIZE);
@@ -74,7 +74,7 @@ std::vector<uint8_t> Serialization::serialize(const LinkStatisticsPayload & payl
   return data;
 }
 
-std::vector<uint8_t> Serialization::serialize(const RCChannelsPayload & payload)
+std::vector<uint8_t> PayloadSerialization::serialize(const RCChannelsPayload & payload)
 {
   std::vector<uint8_t> data(RCChannelsPayload::SIZE);
   uint32_t bitBuffer = 0;
@@ -104,7 +104,7 @@ std::vector<uint8_t> Serialization::serialize(const RCChannelsPayload & payload)
   return data;
 }
 
-std::vector<uint8_t> Serialization::serialize(const CommandPayload & payload)
+std::vector<uint8_t> PayloadSerialization::serialize(const CommandPayload & payload)
 {
   std::vector<uint8_t> data;
   data.reserve(2 + payload.data.size());  // Realm + Command + Data
@@ -115,7 +115,7 @@ std::vector<uint8_t> Serialization::serialize(const CommandPayload & payload)
   return data;
 }
 
-std::optional<BatterySensorPayload> Serialization::deserializeBatterySensor(
+std::optional<BatterySensorPayload> PayloadSerialization::deserializeBatterySensor(
   const std::vector<uint8_t> & data)
 {
   if (data.size() < BatterySensorPayload::SIZE) {
@@ -134,7 +134,7 @@ std::optional<BatterySensorPayload> Serialization::deserializeBatterySensor(
   return payload;
 }
 
-std::optional<HeartbeatPayload> Serialization::deserializeHeartbeat(
+std::optional<HeartbeatPayload> PayloadSerialization::deserializeHeartbeat(
   const std::vector<uint8_t> & data)
 {
   if (data.size() < HeartbeatPayload::SIZE) {
@@ -147,7 +147,7 @@ std::optional<HeartbeatPayload> Serialization::deserializeHeartbeat(
   return payload;
 }
 
-std::optional<LinkStatisticsPayload> Serialization::deserializeLinkStatistics(
+std::optional<LinkStatisticsPayload> PayloadSerialization::deserializeLinkStatistics(
   const std::vector<uint8_t> & data)
 {
   if (data.size() < LinkStatisticsPayload::SIZE) {
@@ -168,7 +168,7 @@ std::optional<LinkStatisticsPayload> Serialization::deserializeLinkStatistics(
   return payload;
 }
 
-std::optional<RCChannelsPayload> Serialization::deserializeRCChannels(
+std::optional<RCChannelsPayload> PayloadSerialization::deserializeRCChannels(
   const std::vector<uint8_t> & data)
 {
   if (data.size() < RCChannelsPayload::SIZE) {
@@ -196,18 +196,19 @@ std::optional<RCChannelsPayload> Serialization::deserializeRCChannels(
   return payload;
 }
 
-std::optional<CommandPayload> Serialization::deserializeCommand(const std::vector<uint8_t> & data)
+std::optional<CommandPayload> PayloadSerialization::deserializeCommand(
+  const std::vector<uint8_t> & data)
 {
   if (data.size() < CommandPayload::BASE_SIZE) {
     return std::nullopt;
   }
 
   CommandPayload payload;
-  payload.ext_header = Serialization::unpackExtHeader(&data[0]);
+  payload.ext_header = PayloadSerialization::unpackExtHeader(&data[0]);
   payload.realm = static_cast<CommandRealm>(data[2]);
   payload.command = static_cast<Command>(data[3]);
   payload.data.assign(data.begin() + 4, data.end());
   return payload;
 }
 
-}  // namespace crsf
+}  // namespace elrs_joy_crsf_protocol::crsf
