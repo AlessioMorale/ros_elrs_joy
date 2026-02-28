@@ -26,52 +26,101 @@
 #define ELRS_JOY_CRSF_NODE__CRSF_JOY_NODE_HPP_
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "elrs_joy_crsf_node/comm/port.hpp"
+#include "elrs_joy_crsf_protocol/crsf/packets.hpp"
+#include "elrs_joy_crsf_protocol/crsf/payload.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/joy.hpp"
-
-using namespace std::literals::chrono_literals;  // NOLINT
 namespace elrs_joy_crsf_node
 {
 class CRSFJoyPublisher : public rclcpp::Node
 {
 private:
   constexpr static const char * const NODE_NAME = "crsf_joy_node";
-  constexpr static const char * const TOPIC_NAME = "crsf_joy";
+
+  struct AxisMapping
+  {
+    int channel_index;
+    double scale;
+    double offset;
+    bool invert;
+    double deadzone;
+    double min;
+    double max;
+  };
+
+  struct ButtonMapping
+  {
+    int channel_index;
+    double threshold;
+    bool invert;
+  };
 
 public:
-  explicit CRSFJoyPublisher(std::unique_ptr<comm::Port> port)
-  : Node(NODE_NAME), port_(std::move(port)), count_(0)
-  {
-    publisher_ = this->create_publisher<sensor_msgs::msg::Joy>(TOPIC_NAME, 10);
-    auto monitor_timer_callback = [this]() -> void { this->handle_monitor(); };
-    auto channels_timer_callback = [this]() -> void { this->handle_channels(); };
-    monitor_timer_ = this->create_wall_timer(500ms, monitor_timer_callback);
-    channels_timer_ = this->create_wall_timer(50ms, channels_timer_callback);
-  }
+  explicit CRSFJoyPublisher(
+    std::unique_ptr<comm::Port> port, const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
 private:
-  void handle_monitor() { RCLCPP_INFO(this->get_logger(), "Monitor timer callback"); }
+  void declare_and_load_parameters();
+  bool validate_and_build_mappings();
+  void configure_serial_if_supported();
 
-  void handle_channels()
-  {
-    count_++;
-    auto message = sensor_msgs::msg::Joy();
-    message.set__buttons({0, 1, 0, 0});
-    RCLCPP_INFO(this->get_logger(), "Publishing: '%zu'", this->count_);
-    this->publisher_->publish(message);
-    RCLCPP_INFO(this->get_logger(), "Channels timer callback");
-  }
+  void on_serial_data(const std::vector<uint8_t> & data);
+  void on_parsed_frame(const elrs_joy_crsf_protocol::crsf::Message::Frame & frame);
+  void on_battery_state(const sensor_msgs::msg::BatteryState::SharedPtr msg);
+
+  void handle_monitor();
+  void handle_channels();
+
+  sensor_msgs::msg::Joy build_mapped_joy_message();
+  sensor_msgs::msg::Joy build_failsafe_joy_message() const;
+
+  double channel_to_axis_value(uint16_t channel_us, const AxisMapping & mapping) const;
+  int channel_to_button_value(uint16_t channel_us, const ButtonMapping & mapping) const;
+
+  static double clamp(double value, double min_value, double max_value);
+
   std::unique_ptr<comm::Port> port_;
+  elrs_joy_crsf_protocol::crsf::Packets packets_parser_;
+
+  std::mutex channels_mutex_;
+  elrs_joy_crsf_protocol::crsf::RCChannelsPayload latest_channels_{};
+
   rclcpp::TimerBase::SharedPtr channels_timer_;
   rclcpp::TimerBase::SharedPtr monitor_timer_;
+  rclcpp::Time last_input_time_{0, 0, RCL_ROS_TIME};
+
+  std::string joy_topic_;
+  std::string battery_topic_;
+  std::string serial_port_name_;
+  int64_t serial_baudrate_{416666};
+  int64_t serial_timeout_ms_{100};
+  int64_t joy_publish_period_ms_{50};
+  int64_t monitor_period_ms_{100};
+  int64_t failsafe_timeout_ms_{500};
+  bool send_failsafe_continuously_{true};
+  bool telemetry_battery_enabled_{true};
+
+  std::vector<double> failsafe_axes_;
+  std::vector<int64_t> failsafe_buttons_raw_;
+
+  std::vector<AxisMapping> axis_mappings_;
+  std::vector<ButtonMapping> button_mappings_;
+
   std::atomic<bool> channels_updated_{false};
   std::atomic<bool> failsafe_active_{true};
+  std::atomic<bool> failsafe_message_sent_{false};
+
   rclcpp::Publisher<sensor_msgs::msg::Joy>::SharedPtr publisher_;
-  size_t count_;
+  rclcpp::Subscription<sensor_msgs::msg::BatteryState>::SharedPtr battery_subscriber_;
 };
 }  // namespace elrs_joy_crsf_node
 #endif  // ELRS_JOY_CRSF_NODE__CRSF_JOY_NODE_HPP_

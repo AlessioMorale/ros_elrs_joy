@@ -26,6 +26,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 #include "elrs_joy_crsf_protocol/crsf/message.hpp"
@@ -37,6 +38,34 @@ struct ExtendedHeader
   Address ext_src_addr;
   Address ext_dest_addr;
   static constexpr size_t SIZE = 2;  // Size in bytes
+};
+
+enum class ParameterDataType : uint8_t
+{
+  UINT8 = 0x00,
+  INT8 = 0x01,
+  UINT16 = 0x02,
+  INT16 = 0x03,
+  UINT32 = 0x04,
+  INT32 = 0x05,
+  FLOAT = 0x08,
+  TEXT_SELECTION = 0x09,
+  STRING = 0x0A,
+  FOLDER = 0x0B,
+  INFO = 0x0C,
+  COMMAND = 0x0D,
+  OUT_OF_RANGE = 0x7F
+};
+
+enum class CommandStatus : uint8_t
+{
+  READY = 0,
+  START = 1,
+  PROGRESS = 2,
+  CONFIRMATION_NEEDED = 3,
+  CONFIRM = 4,
+  CANCEL = 5,
+  POLL = 6
 };
 
 enum class CommandRealm : uint8_t
@@ -84,6 +113,15 @@ struct HeartbeatPayload
   static constexpr std::size_t SIZE = 2;  // Size in bytes
 };
 
+struct AttitudePayload
+{
+  int16_t pitch;
+  int16_t roll;
+  int16_t yaw;
+
+  static constexpr std::size_t SIZE = 6;  // Size in bytes
+};
+
 struct LinkStatisticsPayload
 {
   uint8_t uplinkRssiAnt1;     // dBm * -1
@@ -117,13 +155,62 @@ struct RCChannelsPayload
   static constexpr std::size_t SIZE = 22;  // Size in bytes (11 * 16 bits = 176 bits = 22 bytes)
 };
 
+struct FlightModePayload
+{
+  std::string mode;
+};
+
+struct DevicePingPayload
+{
+  ExtendedHeader ext_header;
+  static constexpr size_t SIZE = ExtendedHeader::SIZE;  // Size in bytes
+};
+
+struct DeviceInfoPayload
+{
+  ExtendedHeader ext_header;
+  std::string device_name;
+  uint32_t serial_number;
+  uint32_t hardware_id;
+  uint32_t firmware_id;
+  uint8_t parameters_total;
+  uint8_t parameter_version;
+  static constexpr size_t BASE_SIZE = ExtendedHeader::SIZE + 4 + 4 + 4 + 1 + 1;
+};
+
+struct ParameterEntryPayload
+{
+  ExtendedHeader ext_header;
+  uint8_t parameter_number;
+  uint8_t chunks_remaining;
+  std::vector<uint8_t> data;
+  static constexpr size_t BASE_SIZE = ExtendedHeader::SIZE + 2;
+};
+
+struct ParameterReadPayload
+{
+  ExtendedHeader ext_header;
+  uint8_t parameter_number;
+  uint8_t chunk_number;
+  static constexpr size_t SIZE = ExtendedHeader::SIZE + 2;
+};
+
+struct ParameterWritePayload
+{
+  ExtendedHeader ext_header;
+  uint8_t parameter_number;
+  std::vector<uint8_t> data;
+  static constexpr size_t BASE_SIZE = ExtendedHeader::SIZE + 1;
+};
+
 struct CommandPayload
 {
   ExtendedHeader ext_header;
   CommandRealm realm;
   Command command;
   std::vector<uint8_t> data;
-  static constexpr size_t BASE_SIZE = ExtendedHeader::SIZE + 2;  // Size in bytes
+  uint8_t command_crc;
+  static constexpr size_t BASE_SIZE = ExtendedHeader::SIZE + 2 + 1;  // Size in bytes
 };
 
 }  // namespace elrs_joy_crsf_protocol::crsf

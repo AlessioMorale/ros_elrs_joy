@@ -25,11 +25,11 @@
 #ifndef ELRS_JOY_CRSF_PROTOCOL__CRSF__PACKETS_HPP_
 #define ELRS_JOY_CRSF_PROTOCOL__CRSF__PACKETS_HPP_
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <functional>
-#include <optional>
-#include <queue>
+#include <span>  // NOLINT
 #include <vector>
 
 #include "elrs_joy_crsf_protocol/crsf/message.hpp"
@@ -116,7 +116,7 @@ public:
 
       case State::WAITING_PAYLOAD:
         current_frame.data.push_back(byte);
-        if (current_frame.data.size() == current_frame.get_length() - 3) {
+        if (current_frame.data.size() == static_cast<size_t>(current_frame.get_length() + 1)) {
           current_state = State::WAITING_CRC;
         }
         break;
@@ -178,9 +178,13 @@ private:
 
   bool verify_crc() const
   {
-    // Calculate CRC over all fields
-    auto calculated_crc = Message::calculateCRC8(current_frame.data);
+    if (current_frame.data.size() < 4) {
+      return false;
+    }
 
+    const auto crc_input =
+      std::span<const uint8_t>(current_frame.data.data() + 2, current_frame.data.size() - 3);
+    const auto calculated_crc = Message::calculateCRC8(crc_input);
     return calculated_crc == current_frame.get_crc();
   }
 };

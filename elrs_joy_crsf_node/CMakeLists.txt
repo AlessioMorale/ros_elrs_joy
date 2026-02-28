@@ -18,6 +18,7 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(elrs_joy_crsf_protocol REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(diagnostic_updater REQUIRED)
+find_package(ament_cmake_gtest QUIET)
 
 include_directories(
   ${PROJECT_SOURCE_DIR}
@@ -25,15 +26,23 @@ include_directories(
   include
 )
 
-file(GLOB CRSF_NODE_SRC_FILES src/*.cpp)
+add_library(${PROJECT_NAME}_lib
+  src/crsf_joy_node.cpp
+)
 
-add_executable(
-  ${NODE_NAME}
-  ${CRSF_NODE_SRC_FILES}
+ament_target_dependencies(${PROJECT_NAME}_lib
+  rclcpp rclcpp_lifecycle elrs_joy_crsf_protocol sensor_msgs diagnostic_msgs diagnostic_updater)
+
+add_executable(${NODE_NAME}
+  src/crsf_main.cpp
+)
+
+target_link_libraries(${NODE_NAME}
+  ${PROJECT_NAME}_lib
 )
 
 ament_target_dependencies(${NODE_NAME}
-rclcpp rclcpp_lifecycle elrs_joy_crsf_protocol sensor_msgs diagnostic_msgs diagnostic_updater)
+  rclcpp rclcpp_lifecycle elrs_joy_crsf_protocol sensor_msgs diagnostic_msgs diagnostic_updater)
 
 # install(
 #   TARGETS
@@ -47,6 +56,21 @@ install(TARGETS ${NODE_NAME}
     DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
+  if(ament_cmake_gtest_FOUND)
+    ament_add_gtest(${PROJECT_NAME}_test
+      test/test_crsf_joy_node.cpp
+    )
+    if(TARGET ${PROJECT_NAME}_test)
+      target_link_libraries(${PROJECT_NAME}_test
+        ${PROJECT_NAME}_lib
+      )
+      ament_target_dependencies(${PROJECT_NAME}_test
+        rclcpp
+        sensor_msgs
+        elrs_joy_crsf_protocol
+      )
+    endif()
+  endif()
 endif()
 
 ament_package()
