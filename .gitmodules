@@ -1,3 +1,0 @@
-[submodule "elrs_joy_crsf_protocol/kaitai/kaitai_struct_cpp_stl_runtime"]
-	path = elrs_joy_crsf_protocol/kaitai/kaitai_struct_cpp_stl_runtime
-	url = https://github.com/kaitai-io/kaitai_struct_cpp_stl_runtime.git
