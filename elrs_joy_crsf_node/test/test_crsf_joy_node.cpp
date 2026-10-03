@@ -27,6 +27,7 @@
 #include <chrono>
 #include <functional>
 #include <limits>
+#include <map>
 #include <memory>
 #include <string>
 #include <thread>
@@ -36,6 +37,7 @@
 #include "elrs_joy_crsf_node/comm/port.hpp"
 #include "elrs_joy_crsf_node/crsf_joy_node.hpp"
 #include "elrs_joy_crsf_protocol/crsf/messages.hpp"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/joy.hpp"
@@ -100,6 +102,30 @@ rclcpp::NodeOptions make_single_mapping_options(const std::string & joy_topic)
   options.append_parameter_override("button_mappings.threshold", std::vector<double>{0.5});
   options.append_parameter_override("button_mappings.invert", std::vector<bool>{false});
   return options;
+}
+
+// Collect the latest status per diagnostic task name (suffix after "<node>: ")
+struct DiagCollector
+{
+  std::map<std::string, diagnostic_msgs::msg::DiagnosticStatus> latest;
+
+  void operator()(const diagnostic_msgs::msg::DiagnosticArray::SharedPtr msg)
+  {
+    for (const auto & status : msg->status) {
+      const auto pos = status.name.find(": ");
+      latest[pos == std::string::npos ? status.name : status.name.substr(pos + 2)] = status;
+    }
+  }
+};
+
+std::string diag_value(const diagnostic_msgs::msg::DiagnosticStatus & status, const std::string & key)
+{
+  for (const auto & kv : status.values) {
+    if (kv.key == key) {
+      return kv.value;
+    }
+  }
+  return "";
 }
 
 }  // namespace
@@ -538,6 +564,121 @@ TEST(CRSFJoyNodeTest, SanitizesInvalidBatteryValuesBeforeSendingCRSF)
 
   executor.remove_node(helper_node);
   executor.remove_node(node);
+  rclcpp::shutdown();
+}
+
+
+TEST(CRSFJoyNodeTest, DiagnosticsReportLinkStatisticsAndBatteryTelemetry)
+{
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    rclcpp::init(argc, nullptr);
+  }
+
+  auto options = make_single_mapping_options("diag_joy");
+  options.append_parameter_override("failsafe_timeout_ms", 5000);
+  options.append_parameter_override("diagnostic_updater.period", 0.1);
+
+  auto fake_port = std::make_unique<FakePort>();
+  auto * fake_port_raw = fake_port.get();
+  auto node = std::make_shared<CRSFJoyPublisher>(std::move(fake_port), options);
+  auto helper_node = std::make_shared<rclcpp::Node>("diag_test_helper");
+
+  DiagCollector diag;
+  auto diag_sub = helper_node->create_subscription<diagnostic_msgs::msg::DiagnosticArray>(
+    "/diagnostics", 10,
+    [&](const diagnostic_msgs::msg::DiagnosticArray::SharedPtr msg) { diag(msg); });
+  auto battery_pub = helper_node->create_publisher<sensor_msgs::msg::BatteryState>("battery_state", 10);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(helper_node);
+
+  elrs_joy_crsf_protocol::crsf::RCChannelsMessage channels_message;
+  channels_message.payload.channels.fill(1500);
+  fake_port_raw->emit(channels_message.to_frame().data);
+
+  elrs_joy_crsf_protocol::crsf::LinkStatisticsMessage link_message;
+  link_message.payload = {};
+  link_message.payload.uplinkRssiAnt1 = 57;
+  link_message.payload.uplinkLinkQuality = 98;
+  link_message.payload.uplinkSnr = 10;
+  link_message.payload.uplinkTxPower = elrs_joy_crsf_protocol::crsf::RFPower::POWER_100MW;
+  fake_port_raw->emit(link_message.to_frame().data);
+
+  sensor_msgs::msg::BatteryState battery;
+  battery.voltage = 15.4F;
+  battery.current = 0.5F;
+  battery.percentage = 0.8F;
+  battery.capacity = std::numeric_limits<float>::quiet_NaN();
+  battery.charge = std::numeric_limits<float>::quiet_NaN();
+
+  const bool ok = spin_until(
+    executor,
+    [&]() {
+      battery_pub->publish(battery);
+      return diag.latest.count("RC link") && diag.latest.count("Battery telemetry") &&
+             diag.latest["Battery telemetry"].level == 0 && diag.latest["RC link"].level == 0;
+    },
+    std::chrono::milliseconds(3000));
+  ASSERT_TRUE(ok);
+
+  const auto & link = diag.latest["RC link"];
+  EXPECT_EQ(diag_value(link, "failsafe"), "False");
+  EXPECT_EQ(diag_value(link, "uplink_rssi_ant1_dbm"), "-57");
+  EXPECT_EQ(diag_value(link, "uplink_link_quality_pct"), "98");
+  EXPECT_EQ(diag_value(link, "tx_power_mw"), "100");
+  EXPECT_EQ(diag_value(link, "rc_frames"), "1");
+
+  const auto & battery_diag = diag.latest["Battery telemetry"];
+  EXPECT_NE(diag_value(battery_diag, "frames_sent"), "0");
+  EXPECT_EQ(diag_value(battery_diag, "last_voltage_v"), "15.4");
+
+  executor.remove_node(helper_node);
+  executor.remove_node(node);
+  (void)diag_sub;
+  rclcpp::shutdown();
+}
+
+TEST(CRSFJoyNodeTest, DiagnosticsReportFailsafeAndMissingBatteryMessages)
+{
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    rclcpp::init(argc, nullptr);
+  }
+
+  auto options = make_single_mapping_options("diag_failsafe_joy");
+  options.append_parameter_override("failsafe_timeout_ms", 50);
+  options.append_parameter_override("monitor_period_ms", 20);
+  options.append_parameter_override("diagnostic_updater.period", 0.1);
+
+  auto node = std::make_shared<CRSFJoyPublisher>(std::make_unique<FakePort>(), options);
+  auto helper_node = std::make_shared<rclcpp::Node>("diag_failsafe_helper");
+
+  DiagCollector diag;
+  auto diag_sub = helper_node->create_subscription<diagnostic_msgs::msg::DiagnosticArray>(
+    "/diagnostics", 10,
+    [&](const diagnostic_msgs::msg::DiagnosticArray::SharedPtr msg) { diag(msg); });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(helper_node);
+
+  const bool ok = spin_until(
+    executor,
+    [&]() { return diag.latest.count("RC link") && diag.latest.count("Battery telemetry"); },
+    std::chrono::milliseconds(3000));
+  ASSERT_TRUE(ok);
+
+  using Status = diagnostic_msgs::msg::DiagnosticStatus;
+  EXPECT_EQ(diag.latest["RC link"].level, Status::ERROR);
+  EXPECT_EQ(diag.latest["RC link"].message, "Failsafe: no RC input yet");
+  EXPECT_EQ(diag.latest["Battery telemetry"].level, Status::WARN);
+  EXPECT_EQ(diag.latest["Battery telemetry"].message, "No battery message received yet");
+
+  executor.remove_node(helper_node);
+  executor.remove_node(node);
+  (void)diag_sub;
   rclcpp::shutdown();
 }
 

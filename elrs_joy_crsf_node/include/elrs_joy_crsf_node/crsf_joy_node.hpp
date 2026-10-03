@@ -26,9 +26,11 @@
 #define ELRS_JOY_CRSF_NODE__CRSF_JOY_NODE_HPP_
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,6 +38,7 @@
 #include "elrs_joy_crsf_node/comm/port.hpp"
 #include "elrs_joy_crsf_protocol/crsf/packets.hpp"
 #include "elrs_joy_crsf_protocol/crsf/payload.hpp"
+#include "diagnostic_updater/diagnostic_updater.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/joy.hpp"
@@ -80,6 +83,10 @@ private:
   void handle_monitor();
   void handle_channels();
 
+  void setup_diagnostics();
+  void diagnose_rc_link(diagnostic_updater::DiagnosticStatusWrapper & stat);
+  void diagnose_battery_telemetry(diagnostic_updater::DiagnosticStatusWrapper & stat);
+
   sensor_msgs::msg::Joy build_mapped_joy_message();
   sensor_msgs::msg::Joy build_failsafe_joy_message() const;
 
@@ -118,6 +125,27 @@ private:
   std::atomic<bool> channels_updated_{false};
   std::atomic<bool> failsafe_active_{true};
   std::atomic<bool> failsafe_message_sent_{false};
+
+  using SteadyClock = std::chrono::steady_clock;
+
+  // Diagnostics state. Written from the serial IO thread and the executor, read by the updater.
+  std::mutex diag_mutex_;
+  elrs_joy_crsf_protocol::crsf::Packets::Statistics parser_stats_{};
+  uint32_t last_diag_crc_errors_{0};
+  std::optional<elrs_joy_crsf_protocol::crsf::LinkStatisticsPayload> link_stats_;
+  SteadyClock::time_point link_stats_time_{};
+  std::optional<SteadyClock::time_point> last_rc_time_;
+  uint32_t rc_frames_{0};
+  std::optional<SteadyClock::time_point> last_battery_time_;
+  uint32_t battery_msgs_received_{0};
+  uint32_t battery_frames_sent_{0};
+  float last_battery_voltage_{0.0F};
+  float last_battery_current_{0.0F};
+
+  std::atomic<bool> serial_open_{false};
+  double diag_lq_warn_{70.0};
+  double diag_lq_error_{30.0};
+  std::unique_ptr<diagnostic_updater::Updater> diagnostic_updater_;
 
   rclcpp::Publisher<sensor_msgs::msg::Joy>::SharedPtr publisher_;
   rclcpp::Subscription<sensor_msgs::msg::BatteryState>::SharedPtr battery_subscriber_;

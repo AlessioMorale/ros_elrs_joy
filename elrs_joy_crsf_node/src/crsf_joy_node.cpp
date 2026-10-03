@@ -64,6 +64,7 @@ CRSFJoyPublisher::CRSFJoyPublisher(
   }
 
   last_input_time_ = this->now();
+  setup_diagnostics();
 
   monitor_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(static_cast<int>(monitor_period_ms_)),
@@ -88,6 +89,8 @@ void CRSFJoyPublisher::declare_and_load_parameters()
   failsafe_timeout_ms_ = this->declare_parameter<int64_t>("failsafe_timeout_ms", 500);
   send_failsafe_continuously_ = this->declare_parameter<bool>("send_failsafe_continuously", true);
   telemetry_battery_enabled_ = this->declare_parameter<bool>("telemetry_battery_enabled", true);
+  diag_lq_warn_ = this->declare_parameter<double>("diagnostics.lq_warn", 70.0);
+  diag_lq_error_ = this->declare_parameter<double>("diagnostics.lq_error", 30.0);
 
   auto axis_channels =
     this->declare_parameter<std::vector<int64_t>>("axis_mappings.channels", {0, 1, 2, 3});
@@ -213,6 +216,7 @@ void CRSFJoyPublisher::configure_serial_if_supported()
 {
   auto * serial_port = dynamic_cast<comm::SerialPort *>(port_.get());
   if (serial_port == nullptr) {
+    serial_open_.store(true);  // not a serial port (e.g. a test double): nothing to open
     return;
   }
 
@@ -228,6 +232,7 @@ void CRSFJoyPublisher::configure_serial_if_supported()
       this->get_logger(), "Failed to open serial port '%s' at %" PRIu64 " baud.",
       serial_port_name_.c_str(), serial_baudrate_);
   } else {
+    serial_open_.store(true);
     RCLCPP_INFO(
       this->get_logger(), "Opened serial port '%s' at %" PRIu64 " baud.", serial_port_name_.c_str(),
       serial_baudrate_);
@@ -239,13 +244,31 @@ void CRSFJoyPublisher::on_serial_data(const std::vector<uint8_t> & data)
   for (const uint8_t byte : data) {
     packets_parser_.process_byte(byte);
   }
+
+  std::scoped_lock<std::mutex> lock(diag_mutex_);
+  parser_stats_ = packets_parser_.get_statistics();
 }
 
 void CRSFJoyPublisher::on_parsed_frame(const elrs_joy_crsf_protocol::crsf::Message::Frame & frame)
 {
+  if (frame.get_type() == elrs_joy_crsf_protocol::crsf::MessageType::LINK_STATISTICS) {
+    if (auto stats = elrs_joy_crsf_protocol::crsf::LinkStatisticsMessage::from_frame(frame)) {
+      std::scoped_lock<std::mutex> lock(diag_mutex_);
+      link_stats_ = stats->payload;
+      link_stats_time_ = SteadyClock::now();
+    }
+    return;
+  }
+
   auto channels_message = elrs_joy_crsf_protocol::crsf::RCChannelsMessage::from_frame(frame);
   if (!channels_message.has_value()) {
     return;
+  }
+
+  {
+    std::scoped_lock<std::mutex> lock(diag_mutex_);
+    last_rc_time_ = SteadyClock::now();
+    ++rc_frames_;
   }
 
   {
@@ -292,8 +315,155 @@ void CRSFJoyPublisher::on_battery_state(const sensor_msgs::msg::BatteryState::Sh
   };
 
   const auto frame = battery_message.to_frame().data;
+  {
+    std::scoped_lock<std::mutex> lock(diag_mutex_);
+    last_battery_time_ = SteadyClock::now();
+    ++battery_msgs_received_;
+    last_battery_voltage_ = voltage;
+    last_battery_current_ = current;
+    if (!frame.empty()) {
+      ++battery_frames_sent_;
+    }
+  }
   if (!frame.empty()) {
     port_->send(frame);
+  }
+}
+
+void CRSFJoyPublisher::setup_diagnostics()
+{
+  diagnostic_updater_ = std::make_unique<diagnostic_updater::Updater>(this);
+  diagnostic_updater_->setHardwareID(
+    serial_port_name_.empty() ? "crsf_receiver" : "crsf_receiver:" + serial_port_name_);
+  diagnostic_updater_->add("RC link", this, &CRSFJoyPublisher::diagnose_rc_link);
+  diagnostic_updater_->add(
+    "Battery telemetry", this, &CRSFJoyPublisher::diagnose_battery_telemetry);
+}
+
+namespace
+{
+using elrs_joy_crsf_protocol::crsf::RFPower;
+
+int rf_power_mw(RFPower power)
+{
+  switch (power) {
+    case RFPower::POWER_0MW:
+      return 0;
+    case RFPower::POWER_10MW:
+      return 10;
+    case RFPower::POWER_25MW:
+      return 25;
+    case RFPower::POWER_50MW:
+      return 50;
+    case RFPower::POWER_100MW:
+      return 100;
+    case RFPower::POWER_250MW:
+      return 250;
+    case RFPower::POWER_500MW:
+      return 500;
+    case RFPower::POWER_1000MW:
+      return 1000;
+    case RFPower::POWER_2000MW:
+      return 2000;
+  }
+  return -1;
+}
+
+constexpr auto kLinkStatsFreshness = std::chrono::seconds(2);
+constexpr auto kBatteryStaleAfter = std::chrono::seconds(5);
+
+int64_t age_ms(std::chrono::steady_clock::time_point now, std::chrono::steady_clock::time_point then)
+{
+  return std::chrono::duration_cast<std::chrono::milliseconds>(now - then).count();
+}
+}  // namespace
+
+void CRSFJoyPublisher::diagnose_rc_link(diagnostic_updater::DiagnosticStatusWrapper & stat)
+{
+  using Status = diagnostic_msgs::msg::DiagnosticStatus;
+  const auto now = SteadyClock::now();
+  const bool failsafe = failsafe_active_.load();
+  const bool serial_open = serial_open_.load();
+
+  std::scoped_lock<std::mutex> lock(diag_mutex_);
+
+  stat.add("serial_port", serial_port_name_);
+  stat.add("serial_open", serial_open);
+  stat.add("failsafe", failsafe);
+  stat.add("rc_frames", rc_frames_);
+  if (last_rc_time_) {
+    stat.add("ms_since_rc_frame", age_ms(now, *last_rc_time_));
+  }
+  stat.add("parser_bytes", parser_stats_.total_bytes_processed);
+  stat.add("parser_frames_decoded", parser_stats_.frames_decoded);
+  stat.add("parser_crc_errors", parser_stats_.crc_errors);
+  stat.add("parser_sync_errors", parser_stats_.sync_errors);
+  stat.add("parser_length_errors", parser_stats_.length_errors);
+
+  const bool link_stats_fresh =
+    link_stats_ && (now - link_stats_time_) <= kLinkStatsFreshness;
+  if (link_stats_fresh) {
+    stat.add("uplink_rssi_ant1_dbm", -static_cast<int>(link_stats_->uplinkRssiAnt1));
+    if (link_stats_->uplinkRssiAnt2 != 0) {
+      stat.add("uplink_rssi_ant2_dbm", -static_cast<int>(link_stats_->uplinkRssiAnt2));
+    }
+    stat.add("uplink_link_quality_pct", static_cast<int>(link_stats_->uplinkLinkQuality));
+    stat.add("uplink_snr_db", static_cast<int>(link_stats_->uplinkSnr));
+    stat.add("active_antenna", static_cast<int>(link_stats_->activeAntenna));
+    stat.add("rf_mode", static_cast<int>(link_stats_->rfMode));
+    stat.add("tx_power_mw", rf_power_mw(link_stats_->uplinkTxPower));
+  } else {
+    stat.add("link_statistics", link_stats_ ? "stale" : "none received");
+  }
+
+  const bool crc_errors_grew = parser_stats_.crc_errors > last_diag_crc_errors_;
+  last_diag_crc_errors_ = parser_stats_.crc_errors;
+
+  if (!serial_open) {
+    stat.summary(Status::ERROR, "Serial port not open");
+  } else if (failsafe) {
+    stat.summary(
+      Status::ERROR, last_rc_time_ ? "Failsafe: RC input lost" : "Failsafe: no RC input yet");
+  } else if (link_stats_fresh && link_stats_->uplinkLinkQuality < diag_lq_error_) {
+    stat.summaryf(Status::ERROR, "Link quality %d%%", link_stats_->uplinkLinkQuality);
+  } else if (link_stats_fresh && link_stats_->uplinkLinkQuality < diag_lq_warn_) {
+    stat.summaryf(Status::WARN, "Link quality %d%%", link_stats_->uplinkLinkQuality);
+  } else if (crc_errors_grew) {
+    stat.summary(Status::WARN, "CRC errors on serial link");
+  } else {
+    stat.summary(Status::OK, "RC link OK");
+  }
+}
+
+void CRSFJoyPublisher::diagnose_battery_telemetry(
+  diagnostic_updater::DiagnosticStatusWrapper & stat)
+{
+  using Status = diagnostic_msgs::msg::DiagnosticStatus;
+  stat.add("enabled", telemetry_battery_enabled_);
+  if (!telemetry_battery_enabled_) {
+    stat.summary(Status::OK, "Battery telemetry disabled");
+    return;
+  }
+
+  const auto now = SteadyClock::now();
+  std::scoped_lock<std::mutex> lock(diag_mutex_);
+
+  stat.add("battery_topic", battery_topic_);
+  stat.add("messages_received", battery_msgs_received_);
+  stat.add("frames_sent", battery_frames_sent_);
+  if (!last_battery_time_) {
+    stat.summary(Status::WARN, "No battery message received yet");
+    return;
+  }
+
+  const auto age = age_ms(now, *last_battery_time_);
+  stat.add("ms_since_battery_message", age);
+  stat.add("last_voltage_v", last_battery_voltage_);
+  stat.add("last_current_a", last_battery_current_);
+  if (now - *last_battery_time_ > kBatteryStaleAfter) {
+    stat.summaryf(Status::WARN, "Battery messages stale (%ld ms)", static_cast<long>(age));
+  } else {
+    stat.summary(Status::OK, "Battery telemetry OK");
   }
 }
 
