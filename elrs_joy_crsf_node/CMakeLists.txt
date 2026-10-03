@@ -28,10 +28,16 @@ include_directories(
 
 add_library(${PROJECT_NAME}_lib
   src/crsf_joy_node.cpp
+  src/comm/custom_baud.cpp
 )
 
-ament_target_dependencies(${PROJECT_NAME}_lib
-  rclcpp rclcpp_lifecycle elrs_joy_crsf_protocol sensor_msgs diagnostic_msgs diagnostic_updater)
+target_link_libraries(${PROJECT_NAME}_lib PUBLIC
+  rclcpp::rclcpp
+  rclcpp_lifecycle::rclcpp_lifecycle
+  elrs_joy_crsf_protocol::elrs_joy_crsf_protocol
+  ${sensor_msgs_TARGETS}
+  ${diagnostic_msgs_TARGETS}
+  diagnostic_updater::diagnostic_updater)
 
 add_executable(${NODE_NAME}
   src/crsf_main.cpp
@@ -40,9 +46,6 @@ add_executable(${NODE_NAME}
 target_link_libraries(${NODE_NAME}
   ${PROJECT_NAME}_lib
 )
-
-ament_target_dependencies(${NODE_NAME}
-  rclcpp rclcpp_lifecycle elrs_joy_crsf_protocol sensor_msgs diagnostic_msgs diagnostic_updater)
 
 # install(
 #   TARGETS
@@ -63,11 +66,6 @@ if(BUILD_TESTING)
     if(TARGET ${PROJECT_NAME}_test)
       target_link_libraries(${PROJECT_NAME}_test
         ${PROJECT_NAME}_lib
-      )
-      ament_target_dependencies(${PROJECT_NAME}_test
-        rclcpp
-        sensor_msgs
-        elrs_joy_crsf_protocol
       )
     endif()
   endif()

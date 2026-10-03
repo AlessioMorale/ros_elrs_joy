@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "boost/asio.hpp"
+#include "custom_baud.hpp"
 #include "port.hpp"
 namespace elrs_joy_crsf_node::comm
 {
@@ -71,7 +72,6 @@ public:
   {
     try {
       serial_port_.open(port);
-      serial_port_.set_option(boost::asio::serial_port_base::baud_rate(baud_rate));
       serial_port_.set_option(boost::asio::serial_port_base::character_size(8));
       serial_port_.set_option(
         boost::asio::serial_port_base::stop_bits(boost::asio::serial_port_base::stop_bits::one));
@@ -79,6 +79,14 @@ public:
         boost::asio::serial_port_base::parity(boost::asio::serial_port_base::parity::none));
       serial_port_.set_option(boost::asio::serial_port_base::flow_control(
         boost::asio::serial_port_base::flow_control::none));
+
+      // asio only accepts standard termios rates; CRSF uses non-standard ones
+      boost::system::error_code ec;
+      serial_port_.set_option(boost::asio::serial_port_base::baud_rate(baud_rate), ec);
+      if (ec && !set_custom_baud_rate(serial_port_.native_handle(), baud_rate)) {
+        serial_port_.close();
+        return false;
+      }
 
       start_receive();
       return true;
@@ -129,7 +137,7 @@ private:
           if (!error) {
             if (receive_callback_) {
               receive_callback_(std::vector<uint8_t>(
-                read_buffer_.begin(), read_buffer_.begin() + bytes_transferred));
+                read_buffer_.begin(), read_buffer_.begin() + static_cast<std::ptrdiff_t>(bytes_transferred)));
             }
             start_receive();
           }
@@ -147,11 +155,13 @@ private:
       boost::asio::bind_executor(
         tx_strand_,
         [this](const boost::system::error_code & error, std::size_t /*bytes_transferred*/) {
-          if (!error) {
-            write_queue_.pop_front();
-            if (!write_queue_.empty()) {
-              start_send();
-            }
+          if (error == boost::asio::error::operation_aborted) {
+            return;  // port closed
+          }
+          // Drop the frame on error too, otherwise the queue stalls forever
+          write_queue_.pop_front();
+          if (!write_queue_.empty()) {
+            start_send();
           }
         }));
   }
