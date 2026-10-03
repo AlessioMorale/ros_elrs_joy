@@ -35,7 +35,7 @@ namespace elrs_joy_crsf_protocol
 {
 TEST(SerializerTest, SerializeAndDeserializeBatterySensor)
 {
-  crsf::BatterySensorPayload payload = {12.3f, 4.56f, 789, 90};
+  crsf::BatterySensorPayload payload = {12.3f, 4.6f, 789, 90};
   auto data = crsf::PayloadSerialization::serialize(payload);
   auto deserializedPayload =
     crsf::PayloadSerialization::deserializeMessage<crsf::BatterySensorPayload>(data);
@@ -44,6 +44,18 @@ TEST(SerializerTest, SerializeAndDeserializeBatterySensor)
   EXPECT_FLOAT_EQ(deserializedPayload->current, payload.current);
   EXPECT_EQ(deserializedPayload->usedCapacity, payload.usedCapacity);
   EXPECT_EQ(deserializedPayload->batteryPercent, payload.batteryPercent);
+}
+
+TEST(SerializerTest, BatterySensorWireUnits)
+{
+  // Voltage and current go out big-endian in 0.1 V / 0.1 A, as EdgeTX expects
+  crsf::BatterySensorPayload payload = {15.42f, 0.48f, 0, 0};
+  auto data = crsf::PayloadSerialization::serialize(payload);
+  ASSERT_EQ(data.size(), crsf::BatterySensorPayload::SIZE);
+  EXPECT_EQ(data[0], 0x00);
+  EXPECT_EQ(data[1], 154);
+  EXPECT_EQ(data[2], 0x00);
+  EXPECT_EQ(data[3], 5);
 }
 
 TEST(SerializerTest, SerializeAndDeserializeAttitude)
@@ -130,7 +142,7 @@ TEST(SerializerTest, SerializeAndDeserializeDeviceInfo)
 TEST(MessageTest, BatterySensorMessageRoundTrip)
 {
   crsf::BatterySensorMessage message;
-  message.payload = {12.3f, 4.56f, 789, 90};
+  message.payload = {12.3f, 4.6f, 789, 90};
   auto frame = message.to_frame();
   auto parsed = crsf::BatterySensorMessage::from_frame(frame);
   ASSERT_TRUE(parsed.has_value());

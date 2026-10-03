@@ -27,6 +27,7 @@
 #include <linux/limits.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -42,10 +43,14 @@ std::vector<uint8_t> PayloadSerialization::serialize(const BatterySensorPayload 
   std::vector<uint8_t> data;
   data.reserve(BatterySensorPayload::SIZE);
 
-  int16_t voltage = static_cast<int16_t>(payload.voltage * 100);
-  int16_t current = static_cast<int16_t>(payload.current * 100);
+  // 0.1 V / 0.1 A units, as sent by Betaflight/iNav and decoded by EdgeTX
+  // (the TBS spec text says 10 uV / 10 uA, which no implementation uses)
+  const auto voltage = static_cast<uint16_t>(
+    std::clamp<long>(std::lround(payload.voltage * 10.0F), 0L, UINT16_MAX));
+  const auto current = static_cast<int16_t>(
+    std::clamp<long>(std::lround(payload.current * 10.0F), INT16_MIN, INT16_MAX));
 
-  packI16(voltage, data);
+  packU16(voltage, data);
   packI16(current, data);
 
   packBS24(payload.usedCapacity, data);
@@ -205,11 +210,11 @@ std::optional<BatterySensorPayload> PayloadSerialization::deserialize_impl(
   }
 
   BatterySensorPayload payload;
-  int16_t voltage = PayloadSerialization::unpackI16(&data[0]);
+  uint16_t voltage = PayloadSerialization::unpackU16(&data[0]);
   int16_t current = PayloadSerialization::unpackI16(&data[2]);
 
-  payload.voltage = static_cast<float>(voltage) / 100.0f;
-  payload.current = static_cast<float>(current) / 100.0f;
+  payload.voltage = static_cast<float>(voltage) / 10.0f;
+  payload.current = static_cast<float>(current) / 10.0f;
   payload.usedCapacity = PayloadSerialization::unpackBS24(&data[4]);
   payload.batteryPercent = data[7];
 
