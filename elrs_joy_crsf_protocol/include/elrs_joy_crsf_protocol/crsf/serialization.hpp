@@ -52,6 +52,7 @@ public:
   static std::vector<uint8_t> serialize(const ParameterReadPayload & payload);
   static std::vector<uint8_t> serialize(const ParameterWritePayload & payload);
   static std::vector<uint8_t> serialize(const CommandPayload & payload);
+  static std::vector<uint8_t> serialize(const OpenTxSyncPayload & payload);
 
   static uint8_t calculateCommandCRC8(
     MessageType type, Address destination, Address origin, uint8_t command_id,

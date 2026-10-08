@@ -1,0 +1,3 @@
+# LINK_STATISTICS from TX module; rssi1=64 rssi2=70 lq=100 snr=9 ant=0 rf_mode=7 power=3(100mW) d_rssi=66 d_lq=97 d_snr=8
+# source: synthetic (generate.py)
+ea 0c 14 40 46 64 09 00 07 03 42 61 08 77

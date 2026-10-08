@@ -1,0 +1,3 @@
+# DEVICE_PING broadcast from the handset
+# source: synthetic (generate.py)
+ee 04 28 00 ea 54

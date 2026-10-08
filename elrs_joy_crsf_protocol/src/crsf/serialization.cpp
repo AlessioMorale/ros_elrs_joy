@@ -24,8 +24,6 @@
 
 #include "elrs_joy_crsf_protocol/crsf/serialization.hpp"
 
-#include <linux/limits.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -45,8 +43,8 @@ std::vector<uint8_t> PayloadSerialization::serialize(const BatterySensorPayload 
 
   // 0.1 V / 0.1 A units, as sent by Betaflight/iNav and decoded by EdgeTX
   // (the TBS spec text says 10 uV / 10 uA, which no implementation uses)
-  const auto voltage = static_cast<uint16_t>(
-    std::clamp<long>(std::lround(payload.voltage * 10.0F), 0L, UINT16_MAX));
+  const auto voltage =
+    static_cast<uint16_t>(std::clamp<long>(std::lround(payload.voltage * 10.0F), 0L, UINT16_MAX));
   const auto current = static_cast<int16_t>(
     std::clamp<long>(std::lround(payload.current * 10.0F), INT16_MIN, INT16_MAX));
 
@@ -198,6 +196,17 @@ std::vector<uint8_t> PayloadSerialization::serialize(const CommandPayload & payl
     static_cast<uint8_t>(payload.realm),
     std::vector<uint8_t>(data.begin() + ExtendedHeader::SIZE + 1, data.end()));
   packU8(command_crc, data);
+  return data;
+}
+
+std::vector<uint8_t> PayloadSerialization::serialize(const OpenTxSyncPayload & payload)
+{
+  std::vector<uint8_t> data;
+  data.reserve(OpenTxSyncPayload::SIZE);
+  packExtHeader(payload.ext_header, data);
+  packU8(OpenTxSyncPayload::SUBTYPE, data);
+  packU32(payload.update_interval, data);
+  packU32(static_cast<uint32_t>(payload.offset), data);
   return data;
 }
 
@@ -433,6 +442,21 @@ std::optional<CommandPayload> PayloadSerialization::deserialize_impl(
   return payload;
 }
 
+template <>
+std::optional<OpenTxSyncPayload> PayloadSerialization::deserialize_impl(
+  const std::vector<uint8_t> & data, type<OpenTxSyncPayload>)
+{
+  if (data.size() < OpenTxSyncPayload::SIZE || data[2] != OpenTxSyncPayload::SUBTYPE) {
+    return std::nullopt;
+  }
+
+  OpenTxSyncPayload payload;
+  payload.ext_header = PayloadSerialization::unpackExtHeader(&data[0]);
+  payload.update_interval = PayloadSerialization::unpackU32(&data[3]);
+  payload.offset = static_cast<int32_t>(PayloadSerialization::unpackU32(&data[7]));
+  return payload;
+}
+
 // Template specializations for deserializeMessage
 template <>
 std::optional<BatterySensorPayload> PayloadSerialization::deserializeMessage<BatterySensorPayload>(
@@ -516,6 +540,13 @@ std::optional<CommandPayload> PayloadSerialization::deserializeMessage<CommandPa
   const std::vector<uint8_t> & data)
 {
   return deserialize_impl(data, type<CommandPayload>{});
+}
+
+template <>
+std::optional<OpenTxSyncPayload> PayloadSerialization::deserializeMessage<OpenTxSyncPayload>(
+  const std::vector<uint8_t> & data)
+{
+  return deserialize_impl(data, type<OpenTxSyncPayload>{});
 }
 
 uint8_t PayloadSerialization::calculateCommandCRC8(

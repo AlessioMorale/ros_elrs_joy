@@ -1,0 +1,5 @@
+# DEVICE_INFO from TX module; 'ELRS TX 2400', serial 'ELRS', fw 3.5.3, 25 params
+# source: synthetic (generate.py)
+ea 1f 29 ea ee 45 4c 52 53 20 54 58 20 32 34 30
+30 00 45 4c 52 53 00 00 00 00 00 03 05 03 19 00
+89

@@ -45,6 +45,9 @@ if(BUILD_TESTING)
   file(GLOB TEST_SOURCES test/*.cpp)
   ament_add_gtest(${PROJECT_NAME}_test ${TEST_SOURCES})
   target_link_libraries(${PROJECT_NAME}_test ${PROJECT_NAME})
+  # Golden frames, shared with the Rust bindings tests (remote_controller/crates)
+  target_compile_definitions(${PROJECT_NAME}_test PRIVATE
+    CRSF_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
 endif()
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)

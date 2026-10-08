@@ -1,0 +1,6 @@
+# PARAMETER_SETTINGS_ENTRY param 1 'Packet Rate' TEXT_SELECTION, chunk 1 of 3
+# source: synthetic (generate.py)
+ea 3e 2b ef ee 01 01 31 32 64 42 6d 29 3b 32 35
+30 48 7a 28 2d 31 30 38 64 42 6d 29 3b 33 33 33
+48 7a 20 46 75 6c 6c 28 2d 31 30 35 64 42 6d 29
+3b 35 30 30 48 7a 28 2d 31 30 35 64 42 6d 29 6d

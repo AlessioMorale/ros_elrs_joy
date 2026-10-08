@@ -1,0 +1,3 @@
+# FLIGHT_MODE from TX module; robot status 'RDY'
+# source: synthetic (generate.py)
+ea 06 21 52 44 59 00 0d

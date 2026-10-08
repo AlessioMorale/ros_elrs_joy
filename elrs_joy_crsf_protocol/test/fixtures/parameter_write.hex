@@ -1,0 +1,3 @@
+# PARAMETER_WRITE param 5 = 3 (Max Power 100 mW), Lua origin to TX module
+# source: synthetic (generate.py)
+ee 06 2d ee ef 05 03 46

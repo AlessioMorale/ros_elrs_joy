@@ -37,7 +37,8 @@ namespace elrs_joy_crsf_protocol::crsf
 
 bool Message::isValidSync(uint8_t sync)
 {
-  return sync == SYNC_BYTE || sync == SYNC_BYTE_EDGETX || sync == SYNC_BYTE_BROADCAST;
+  return sync == SYNC_BYTE || sync == SYNC_BYTE_EDGETX || sync == SYNC_BYTE_BROADCAST ||
+         sync == SYNC_BYTE_HANDSET;
 }
 
 std::vector<uint8_t> Message::serialize(

@@ -114,6 +114,8 @@ public:
     static_cast<uint8_t>(Address::CRSF_ADDRESS_BROADCAST);
   static constexpr uint8_t SYNC_BYTE_EDGETX =
     static_cast<uint8_t>(Address::CRSF_ADDRESS_CRSF_TRANSMITTER);
+  static constexpr uint8_t SYNC_BYTE_HANDSET =
+    static_cast<uint8_t>(Address::CRSF_ADDRESS_RADIO_TRANSMITTER);
   static constexpr size_t MIN_FRAME_LEN = 2;
   static constexpr size_t MAX_FRAME_LEN = 62;
 

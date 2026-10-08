@@ -1,0 +1,4 @@
+# RC_CHANNELS_PACKED to TX module; us: 1500,2000,1000,1500,2000,1000,1500,1500,1500,1500,1500,1500,1500,1500,1500,1500
+# source: synthetic (generate.py)
+ee 18 16 e0 03 38 30 c0 07 70 60 80 0f 7c e0 03
+1f f8 c0 07 3e f0 81 0f 7c a2

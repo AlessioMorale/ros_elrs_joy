@@ -362,4 +362,32 @@ public:
   }
 };
 
+class OpenTxSyncMessage
+{
+public:
+  OpenTxSyncPayload payload;
+
+  Message::Frame to_frame(Address sync = Address::CRSF_ADDRESS_RADIO_TRANSMITTER) const
+  {
+    return {
+      .data =
+        Message::serialize(MessageType::RADIO_ID, PayloadSerialization::serialize(payload), sync)};
+  }
+
+  // Only RADIO_ID frames carrying the timing-correction sub-type are accepted
+  static std::optional<OpenTxSyncMessage> from_frame(const Message::Frame & frame)
+  {
+    if (frame.get_type() != MessageType::RADIO_ID) {
+      return std::nullopt;
+    }
+
+    auto parsed = PayloadSerialization::deserializeMessage<OpenTxSyncPayload>(frame.get_payload());
+    if (!parsed) {
+      return std::nullopt;
+    }
+
+    return OpenTxSyncMessage{.payload = *parsed};
+  }
+};
+
 }  // namespace elrs_joy_crsf_protocol::crsf

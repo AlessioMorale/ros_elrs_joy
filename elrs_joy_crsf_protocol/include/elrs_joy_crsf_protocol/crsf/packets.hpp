@@ -69,7 +69,9 @@ public:
 
   using FrameCallback = std::function<void(const Message::Frame &)>;
 
-  static constexpr std::array<uint8_t, 3> VALID_SYNC_BYTES = {0xC8, 0x00, 0xEE};
+  // 0xC8: flight controller (RX side), 0x00: broadcast, 0xEE: TX module (frames to the module),
+  // 0xEA: handset (frames from the TX module to the handset)
+  static constexpr std::array<uint8_t, 4> VALID_SYNC_BYTES = {0xC8, 0x00, 0xEE, 0xEA};
   static constexpr uint8_t MIN_FRAME_LENGTH = 2;
   static constexpr uint8_t MAX_FRAME_LENGTH = 62;
 

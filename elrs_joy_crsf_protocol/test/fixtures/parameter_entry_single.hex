@@ -1,0 +1,5 @@
+# PARAMETER_SETTINGS_ENTRY param 5 'Max Power' TEXT_SELECTION, 1 chunk
+# source: synthetic (generate.py)
+ea 2a 2b ef ee 05 00 04 09 4d 61 78 20 50 6f 77
+65 72 00 31 30 3b 32 35 3b 35 30 3b 31 30 30 3b
+32 35 30 00 03 00 04 03 6d 57 00 5d

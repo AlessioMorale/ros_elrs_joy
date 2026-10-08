@@ -203,6 +203,18 @@ struct ParameterWritePayload
   static constexpr size_t BASE_SIZE = ExtendedHeader::SIZE + 1;
 };
 
+// Timing correction ("OpenTX sync", "CRSF shot") sent by the TX module to the handset.
+// On the wire it is an extended frame of type RADIO_ID (0x3A) with sub-type 0x10:
+//   ext dest (0xEA), ext origin (0xEE), 0x10, update_interval (u32 BE), offset (i32 BE)
+struct OpenTxSyncPayload
+{
+  ExtendedHeader ext_header;
+  uint32_t update_interval;  // RC frame period the module wants, LSB = 100 ns
+  int32_t offset;            // LSB = 100 ns; positive = frames arrive too early
+  static constexpr uint8_t SUBTYPE = static_cast<uint8_t>(MessageType::OPENTX_SYNC);
+  static constexpr size_t SIZE = ExtendedHeader::SIZE + 1 + 4 + 4;
+};
+
 struct CommandPayload
 {
   ExtendedHeader ext_header;
