@@ -53,6 +53,15 @@ CRSFJoyPublisher::CRSFJoyPublisher(
       [this](const sensor_msgs::msg::BatteryState::SharedPtr msg) { this->on_battery_state(msg); });
   }
 
+  if (telemetry_status_enabled_) {
+    status_subscriber_ = this->create_subscription<std_msgs::msg::String>(
+      status_topic_, 10,
+      [this](const std_msgs::msg::String::SharedPtr msg) { this->on_robot_status(msg); });
+    status_timer_ = this->create_wall_timer(
+      std::chrono::milliseconds(static_cast<int>(status_period_ms_)),
+      [this]() { this->send_robot_status(); });
+  }
+
   packets_parser_.set_callback([this](const elrs_joy_crsf_protocol::crsf::Message::Frame & frame) {
     this->on_parsed_frame(frame);
   });
@@ -89,6 +98,10 @@ void CRSFJoyPublisher::declare_and_load_parameters()
   failsafe_timeout_ms_ = this->declare_parameter<int64_t>("failsafe_timeout_ms", 500);
   send_failsafe_continuously_ = this->declare_parameter<bool>("send_failsafe_continuously", true);
   telemetry_battery_enabled_ = this->declare_parameter<bool>("telemetry_battery_enabled", true);
+  telemetry_status_enabled_ = this->declare_parameter<bool>("telemetry_status_enabled", true);
+  status_topic_ = this->declare_parameter<std::string>("status_topic", "/robot_status");
+  status_period_ms_ = this->declare_parameter<int64_t>("status_period_ms", 500);
+  status_timeout_ms_ = this->declare_parameter<int64_t>("status_timeout_ms", 2000);
   diag_lq_warn_ = this->declare_parameter<double>("diagnostics.lq_warn", 70.0);
   diag_lq_error_ = this->declare_parameter<double>("diagnostics.lq_error", 30.0);
 
@@ -330,6 +343,53 @@ void CRSFJoyPublisher::on_battery_state(const sensor_msgs::msg::BatteryState::Sh
   }
 }
 
+std::string CRSFJoyPublisher::sanitize_status(const std::string & text)
+{
+  std::string result = text.substr(0, STATUS_MAX_LENGTH);
+  for (char & c : result) {
+    if (c < 0x20 || c > 0x7E) {
+      c = '?';
+    }
+  }
+  return result;
+}
+
+void CRSFJoyPublisher::on_robot_status(const std_msgs::msg::String::SharedPtr msg)
+{
+  const auto text = sanitize_status(msg->data);
+  bool changed = false;
+  {
+    std::scoped_lock<std::mutex> lock(diag_mutex_);
+    changed = !last_status_time_ || text != last_status_;
+    last_status_ = text;
+    last_status_time_ = SteadyClock::now();
+  }
+  // A change goes out at once so the handset sees it well within a second
+  if (changed) {
+    send_robot_status();
+  }
+}
+
+void CRSFJoyPublisher::send_robot_status()
+{
+  if (port_ == nullptr) {
+    return;
+  }
+  elrs_joy_crsf_protocol::crsf::FlightModeMessage message;
+  {
+    std::scoped_lock<std::mutex> lock(diag_mutex_);
+    // A status source that went quiet is not repeated: the handset then marks it stale
+    if (
+      !last_status_time_ ||
+      SteadyClock::now() - *last_status_time_ > std::chrono::milliseconds(status_timeout_ms_)) {
+      return;
+    }
+    message.payload.mode = last_status_;
+    ++status_frames_sent_;
+  }
+  port_->send(message.to_frame().data);
+}
+
 void CRSFJoyPublisher::setup_diagnostics()
 {
   diagnostic_updater_ = std::make_unique<diagnostic_updater::Updater>(this);
@@ -372,7 +432,8 @@ int rf_power_mw(RFPower power)
 constexpr auto kLinkStatsFreshness = std::chrono::seconds(2);
 constexpr auto kBatteryStaleAfter = std::chrono::seconds(5);
 
-int64_t age_ms(std::chrono::steady_clock::time_point now, std::chrono::steady_clock::time_point then)
+int64_t age_ms(
+  std::chrono::steady_clock::time_point now, std::chrono::steady_clock::time_point then)
 {
   return std::chrono::duration_cast<std::chrono::milliseconds>(now - then).count();
 }
@@ -400,8 +461,7 @@ void CRSFJoyPublisher::diagnose_rc_link(diagnostic_updater::DiagnosticStatusWrap
   stat.add("parser_sync_errors", parser_stats_.sync_errors);
   stat.add("parser_length_errors", parser_stats_.length_errors);
 
-  const bool link_stats_fresh =
-    link_stats_ && (now - link_stats_time_) <= kLinkStatsFreshness;
+  const bool link_stats_fresh = link_stats_ && (now - link_stats_time_) <= kLinkStatsFreshness;
   if (link_stats_fresh) {
     stat.add("uplink_rssi_ant1_dbm", -static_cast<int>(link_stats_->uplinkRssiAnt1));
     if (link_stats_->uplinkRssiAnt2 != 0) {
@@ -451,6 +511,7 @@ void CRSFJoyPublisher::diagnose_battery_telemetry(
   stat.add("battery_topic", battery_topic_);
   stat.add("messages_received", battery_msgs_received_);
   stat.add("frames_sent", battery_frames_sent_);
+  stat.add("status_frames_sent", status_frames_sent_);
   if (!last_battery_time_) {
     stat.summary(Status::WARN, "No battery message received yet");
     return;

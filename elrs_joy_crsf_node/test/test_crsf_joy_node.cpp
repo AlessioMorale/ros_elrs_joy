@@ -34,13 +34,14 @@
 #include <utility>
 #include <vector>
 
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "elrs_joy_crsf_node/comm/port.hpp"
 #include "elrs_joy_crsf_node/crsf_joy_node.hpp"
 #include "elrs_joy_crsf_protocol/crsf/messages.hpp"
-#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/joy.hpp"
+#include "std_msgs/msg/string.hpp"
 
 namespace elrs_joy_crsf_node
 {
@@ -118,7 +119,8 @@ struct DiagCollector
   }
 };
 
-std::string diag_value(const diagnostic_msgs::msg::DiagnosticStatus & status, const std::string & key)
+std::string diag_value(
+  const diagnostic_msgs::msg::DiagnosticStatus & status, const std::string & key)
 {
   for (const auto & kv : status.values) {
     if (kv.key == key) {
@@ -567,7 +569,6 @@ TEST(CRSFJoyNodeTest, SanitizesInvalidBatteryValuesBeforeSendingCRSF)
   rclcpp::shutdown();
 }
 
-
 TEST(CRSFJoyNodeTest, DiagnosticsReportLinkStatisticsAndBatteryTelemetry)
 {
   if (!rclcpp::ok()) {
@@ -588,7 +589,8 @@ TEST(CRSFJoyNodeTest, DiagnosticsReportLinkStatisticsAndBatteryTelemetry)
   auto diag_sub = helper_node->create_subscription<diagnostic_msgs::msg::DiagnosticArray>(
     "/diagnostics", 10,
     [&](const diagnostic_msgs::msg::DiagnosticArray::SharedPtr msg) { diag(msg); });
-  auto battery_pub = helper_node->create_publisher<sensor_msgs::msg::BatteryState>("battery_state", 10);
+  auto battery_pub =
+    helper_node->create_publisher<sensor_msgs::msg::BatteryState>("battery_state", 10);
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
@@ -679,6 +681,176 @@ TEST(CRSFJoyNodeTest, DiagnosticsReportFailsafeAndMissingBatteryMessages)
   executor.remove_node(helper_node);
   executor.remove_node(node);
   (void)diag_sub;
+  rclcpp::shutdown();
+}
+
+namespace
+{
+std::vector<std::string> sent_flight_modes(const FakePort & port)
+{
+  std::vector<std::string> modes;
+  for (const auto & data : port.sent_frames_) {
+    const elrs_joy_crsf_protocol::crsf::Message::Frame frame{data};
+    if (auto mode = elrs_joy_crsf_protocol::crsf::FlightModeMessage::from_frame(frame)) {
+      modes.push_back(mode->payload.mode);
+    }
+  }
+  return modes;
+}
+}  // namespace
+
+TEST(CRSFJoyNodeTest, SanitizesStatusText)
+{
+  EXPECT_EQ(CRSFJoyPublisher::sanitize_status("RDY"), "RDY");
+  EXPECT_EQ(CRSFJoyPublisher::sanitize_status("FLT:MOTOR_LEFT_OVERHEAT"), "FLT:MOTOR_LEFT_");
+  EXPECT_EQ(CRSFJoyPublisher::sanitize_status(std::string("W\nR\x01") + "\xC3"), "W?R??");
+}
+
+TEST(CRSFJoyNodeTest, ForwardsRobotStatusAsFlightModeFrame)
+{
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    rclcpp::init(argc, nullptr);
+  }
+
+  rclcpp::NodeOptions options;
+  options.context(rclcpp::contexts::get_global_default_context());
+  options.append_parameter_override("status_topic", "status_test");
+  options.append_parameter_override("telemetry_battery_enabled", false);
+
+  auto fake_port = std::make_unique<FakePort>();
+  auto * fake_port_raw = fake_port.get();
+  auto node = std::make_shared<CRSFJoyPublisher>(std::move(fake_port), options);
+  auto helper_node = std::make_shared<rclcpp::Node>("status_test_helper");
+  auto pub = helper_node->create_publisher<std_msgs::msg::String>("status_test", 10);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(helper_node);
+
+  std_msgs::msg::String msg;
+  msg.data = "FLT:MOTOR_LEFT_OVERHEAT";
+  const bool sent = spin_until(
+    executor,
+    [&]() {
+      pub->publish(msg);
+      return !fake_port_raw->sent_frames_.empty();
+    },
+    std::chrono::milliseconds(1000));
+  ASSERT_TRUE(sent);
+
+  // Exact wire format: FC sync, FLIGHT_MODE, 15 characters, NUL, CRC
+  const auto & frame = fake_port_raw->sent_frames_.front();
+  ASSERT_EQ(frame.size(), 2u + 1u + 15u + 1u + 1u);
+  EXPECT_EQ(frame[0], 0xC8);
+  EXPECT_EQ(frame[1], 18);
+  EXPECT_EQ(frame[2], 0x21);
+  EXPECT_EQ(std::string(frame.begin() + 3, frame.begin() + 18), "FLT:MOTOR_LEFT_");
+  EXPECT_EQ(frame[18], 0);
+  EXPECT_EQ(
+    elrs_joy_crsf_protocol::crsf::Message::parse_message(frame).validation_status,
+    elrs_joy_crsf_protocol::crsf::ValidationStatus::OK);
+
+  // A new value goes out at once, not at the next period
+  fake_port_raw->sent_frames_.clear();
+  msg.data = "RDY";
+  pub->publish(msg);
+  ASSERT_TRUE(spin_until(
+    executor, [&]() { return !sent_flight_modes(*fake_port_raw).empty(); },
+    std::chrono::milliseconds(200)));
+  EXPECT_EQ(sent_flight_modes(*fake_port_raw).front(), "RDY");
+
+  executor.remove_node(helper_node);
+  executor.remove_node(node);
+  rclcpp::shutdown();
+}
+
+TEST(CRSFJoyNodeTest, RepeatsStatusAndStopsWhenSourceGoesQuiet)
+{
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    rclcpp::init(argc, nullptr);
+  }
+
+  rclcpp::NodeOptions options;
+  options.context(rclcpp::contexts::get_global_default_context());
+  options.append_parameter_override("status_topic", "status_repeat_test");
+  options.append_parameter_override("status_period_ms", 50);
+  options.append_parameter_override("status_timeout_ms", 300);
+  options.append_parameter_override("telemetry_battery_enabled", false);
+
+  auto fake_port = std::make_unique<FakePort>();
+  auto * fake_port_raw = fake_port.get();
+  auto node = std::make_shared<CRSFJoyPublisher>(std::move(fake_port), options);
+  auto helper_node = std::make_shared<rclcpp::Node>("status_repeat_helper");
+  auto pub = helper_node->create_publisher<std_msgs::msg::String>("status_repeat_test", 10);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(helper_node);
+
+  std_msgs::msg::String msg;
+  msg.data = "WRN:TEMP";
+  ASSERT_TRUE(spin_until(
+    executor,
+    [&]() {
+      if (fake_port_raw->sent_frames_.empty()) {
+        pub->publish(msg);
+      }
+      return sent_flight_modes(*fake_port_raw).size() >= 3;
+    },
+    std::chrono::milliseconds(1000)));
+  for (const auto & mode : sent_flight_modes(*fake_port_raw)) {
+    EXPECT_EQ(mode, "WRN:TEMP");
+  }
+
+  // No more updates: after status_timeout_ms the node stops repeating the old value
+  spin_until(executor, []() { return false; }, std::chrono::milliseconds(400));
+  const auto count = fake_port_raw->sent_frames_.size();
+  spin_until(executor, []() { return false; }, std::chrono::milliseconds(300));
+  EXPECT_EQ(fake_port_raw->sent_frames_.size(), count);
+
+  executor.remove_node(helper_node);
+  executor.remove_node(node);
+  rclcpp::shutdown();
+}
+
+TEST(CRSFJoyNodeTest, StatusForwardingCanBeDisabled)
+{
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    rclcpp::init(argc, nullptr);
+  }
+
+  rclcpp::NodeOptions options;
+  options.context(rclcpp::contexts::get_global_default_context());
+  options.append_parameter_override("status_topic", "status_disabled_test");
+  options.append_parameter_override("telemetry_status_enabled", false);
+  options.append_parameter_override("telemetry_battery_enabled", false);
+
+  auto fake_port = std::make_unique<FakePort>();
+  auto * fake_port_raw = fake_port.get();
+  auto node = std::make_shared<CRSFJoyPublisher>(std::move(fake_port), options);
+  auto helper_node = std::make_shared<rclcpp::Node>("status_disabled_helper");
+  auto pub = helper_node->create_publisher<std_msgs::msg::String>("status_disabled_test", 10);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(helper_node);
+
+  std_msgs::msg::String msg;
+  msg.data = "RDY";
+  spin_until(
+    executor,
+    [&]() {
+      pub->publish(msg);
+      return false;
+    },
+    std::chrono::milliseconds(300));
+  EXPECT_TRUE(sent_flight_modes(*fake_port_raw).empty());
+
+  executor.remove_node(helper_node);
+  executor.remove_node(node);
   rclcpp::shutdown();
 }
 

@@ -17,6 +17,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(elrs_joy_crsf_protocol REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(diagnostic_updater REQUIRED)
 find_package(ament_cmake_gtest QUIET)
 
@@ -37,6 +38,7 @@ target_link_libraries(${PROJECT_NAME}_lib PUBLIC
   elrs_joy_crsf_protocol::elrs_joy_crsf_protocol
   ${sensor_msgs_TARGETS}
   ${diagnostic_msgs_TARGETS}
+  ${std_msgs_TARGETS}
   diagnostic_updater::diagnostic_updater)
 
 add_executable(${NODE_NAME}

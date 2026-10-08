@@ -35,13 +35,14 @@
 #include <utility>
 #include <vector>
 
+#include "diagnostic_updater/diagnostic_updater.hpp"
 #include "elrs_joy_crsf_node/comm/port.hpp"
 #include "elrs_joy_crsf_protocol/crsf/packets.hpp"
 #include "elrs_joy_crsf_protocol/crsf/payload.hpp"
-#include "diagnostic_updater/diagnostic_updater.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/joy.hpp"
+#include "std_msgs/msg/string.hpp"
 namespace elrs_joy_crsf_node
 {
 class CRSFJoyPublisher : public rclcpp::Node
@@ -79,7 +80,16 @@ private:
   void on_serial_data(const std::vector<uint8_t> & data);
   void on_parsed_frame(const elrs_joy_crsf_protocol::crsf::Message::Frame & frame);
   void on_battery_state(const sensor_msgs::msg::BatteryState::SharedPtr msg);
+  void on_robot_status(const std_msgs::msg::String::SharedPtr msg);
+  void send_robot_status();
 
+public:
+  // Max FLIGHT_MODE text forwarded; EdgeTX and the handheld show at most this many characters
+  static constexpr size_t STATUS_MAX_LENGTH = 15;
+  // Truncates to STATUS_MAX_LENGTH and replaces non-printable ASCII with '?'
+  static std::string sanitize_status(const std::string & text);
+
+private:
   void handle_monitor();
   void handle_channels();
 
@@ -103,6 +113,7 @@ private:
 
   rclcpp::TimerBase::SharedPtr channels_timer_;
   rclcpp::TimerBase::SharedPtr monitor_timer_;
+  rclcpp::TimerBase::SharedPtr status_timer_;
   rclcpp::Time last_input_time_{0, 0, RCL_ROS_TIME};
 
   std::string joy_topic_;
@@ -115,6 +126,10 @@ private:
   int64_t failsafe_timeout_ms_{500};
   bool send_failsafe_continuously_{true};
   bool telemetry_battery_enabled_{true};
+  bool telemetry_status_enabled_{true};
+  std::string status_topic_;
+  int64_t status_period_ms_{500};
+  int64_t status_timeout_ms_{2000};
 
   std::vector<double> failsafe_axes_;
   std::vector<int64_t> failsafe_buttons_raw_;
@@ -141,6 +156,9 @@ private:
   uint32_t battery_frames_sent_{0};
   float last_battery_voltage_{0.0F};
   float last_battery_current_{0.0F};
+  std::string last_status_;
+  std::optional<SteadyClock::time_point> last_status_time_;
+  uint32_t status_frames_sent_{0};
 
   std::atomic<bool> serial_open_{false};
   double diag_lq_warn_{70.0};
@@ -149,6 +167,7 @@ private:
 
   rclcpp::Publisher<sensor_msgs::msg::Joy>::SharedPtr publisher_;
   rclcpp::Subscription<sensor_msgs::msg::BatteryState>::SharedPtr battery_subscriber_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr status_subscriber_;
 };
 }  // namespace elrs_joy_crsf_node
 #endif  // ELRS_JOY_CRSF_NODE__CRSF_JOY_NODE_HPP_
