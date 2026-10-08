@@ -73,6 +73,11 @@ inline ValidationStatus Message::validate(const std::vector<uint8_t> & data)
     return ValidationStatus::UNSUPPORTED_SYNC;
   }
 
+  // The length covers type, payload and CRC; below 2 the CRC range would underflow
+  if (length < MIN_FRAME_LEN || length > MAX_FRAME_LEN) {
+    return ValidationStatus::INVALID_NOT_ENOUGH_DATA;
+  }
+
   if (data.size() < length + 2u) {  // +2 for sync and length bytes
     return ValidationStatus::INVALID_NOT_ENOUGH_DATA;
   }

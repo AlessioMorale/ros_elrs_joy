@@ -51,4 +51,18 @@ TEST(FrameTest, SerializeAndParse)
   EXPECT_EQ(result.message.get_payload(), payload);
 }
 
+TEST(FrameTest, ParseRejectsOutOfRangeLength)
+{
+  // Length 0 and 1 once made the CRC range underflow; 63+ exceeds the 64-byte frame limit
+  for (const int length : {0, 1, 63, 255}) {
+    std::vector<uint8_t> data(260, 0x00);
+    data[0] = 0xC8;
+    data[1] = static_cast<uint8_t>(length);
+    data[2] = 0x16;
+    EXPECT_EQ(
+      Message::parse_message(data).validation_status, ValidationStatus::INVALID_NOT_ENOUGH_DATA)
+      << length;
+  }
+}
+
 }  // namespace elrs_joy_crsf_protocol::crsf
