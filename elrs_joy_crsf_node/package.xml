@@ -3,7 +3,7 @@
 <package format="3">
   <name>elrs_joy_crsf_node</name>
   <version>0.0.0</version>
-  <description>CRSF joy node for ELRS</description>
+  <description>Slamming Works CRSF joy node for ExpressLRS receivers</description>
   <maintainer email="alessiomorale@gmail.com">Alessio Morale</maintainer>
   <license>MIT</license>
   <depend>elrs_joy_crsf_protocol</depend>

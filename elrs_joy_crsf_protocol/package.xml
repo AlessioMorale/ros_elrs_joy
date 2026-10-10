@@ -3,7 +3,7 @@
 <package format="3">
   <name>elrs_joy_crsf_protocol</name>
   <version>0.0.0</version>
-  <description>crsf protocol handling for ELRS</description>
+  <description>Slamming Works C++ library for parsing and building CRSF frames</description>
   <maintainer email="alessiomorale@gmail.com">Alessio Morale</maintainer>
   <license>MIT</license>
 

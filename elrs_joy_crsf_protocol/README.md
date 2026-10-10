@@ -13,7 +13,7 @@ Defined in `crsf/messages.hpp`. Each one has `from_frame()` and `to_frame()`.
 | `LinkStatisticsMessage` | `0x14` | RSSI, LQ, SNR, RF mode, … |
 | `AttitudeMessage` | `0x1E` | pitch, roll, yaw (raw int16) |
 | `FlightModeMessage` | `0x21` | string |
-| `HeartbeatMessage` | `0x0B` | – |
+| `HeartbeatMessage` | `0x0B` | None |
 
 ## Usage
 
